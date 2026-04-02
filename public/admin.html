@@ -37,6 +37,67 @@
       </section>
 
       <section class="admin-card">
+        <h2>Images du hero (boutique)</h2>
+        <p class="key-hint">
+          Quatre visuels pour la grande bannière en page d’accueil. Laissez l’URL vide pour conserver
+          l’image par défaut. Vous pouvez coller un lien ou envoyer un fichier (enregistré sur le serveur).
+        </p>
+        <div class="hero-admin-slots">
+          <div class="hero-admin-slot" data-slot="0">
+            <p class="hero-admin-label">Image 1 — colonne gauche (grande)</p>
+            <div class="form-row">
+              <label for="hero-url-0">URL</label>
+              <input type="text" id="hero-url-0" placeholder="https://… ou /uploads/… — vide = défaut" />
+            </div>
+            <div class="form-row">
+              <label for="hero-file-0">Fichier image</label>
+              <input type="file" id="hero-file-0" accept="image/*" />
+            </div>
+            <img class="hero-admin-preview" id="hero-preview-0" alt="" width="120" height="120" hidden />
+          </div>
+          <div class="hero-admin-slot" data-slot="1">
+            <p class="hero-admin-label">Image 2 — bloc central haut</p>
+            <div class="form-row">
+              <label for="hero-url-1">URL</label>
+              <input type="text" id="hero-url-1" placeholder="https://… ou /uploads/… — vide = défaut" />
+            </div>
+            <div class="form-row">
+              <label for="hero-file-1">Fichier image</label>
+              <input type="file" id="hero-file-1" accept="image/*" />
+            </div>
+            <img class="hero-admin-preview" id="hero-preview-1" alt="" width="120" height="120" hidden />
+          </div>
+          <div class="hero-admin-slot" data-slot="2">
+            <p class="hero-admin-label">Image 3 — bloc central bas</p>
+            <div class="form-row">
+              <label for="hero-url-2">URL</label>
+              <input type="text" id="hero-url-2" placeholder="https://… ou /uploads/… — vide = défaut" />
+            </div>
+            <div class="form-row">
+              <label for="hero-file-2">Fichier image</label>
+              <input type="file" id="hero-file-2" accept="image/*" />
+            </div>
+            <img class="hero-admin-preview" id="hero-preview-2" alt="" width="120" height="120" hidden />
+          </div>
+          <div class="hero-admin-slot" data-slot="3">
+            <p class="hero-admin-label">Image 4 — colonne droite (grande)</p>
+            <div class="form-row">
+              <label for="hero-url-3">URL</label>
+              <input type="text" id="hero-url-3" placeholder="https://… ou /uploads/… — vide = défaut" />
+            </div>
+            <div class="form-row">
+              <label for="hero-file-3">Fichier image</label>
+              <input type="file" id="hero-file-3" accept="image/*" />
+            </div>
+            <img class="hero-admin-preview" id="hero-preview-3" alt="" width="120" height="120" hidden />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="save-hero">Enregistrer le hero</button>
+        </div>
+      </section>
+
+      <section class="admin-card">
         <h2 id="form-title">Ajouter un produit</h2>
         <form id="product-form">
           <input type="hidden" id="edit-id" value="" />

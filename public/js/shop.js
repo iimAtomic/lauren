@@ -86,30 +86,13 @@
   function buildWhatsAppMessage(cart) {
     const lines = cart.map((item) => {
       const qty = item.qty || 1;
-      const unit = Number(item.price) || 0;
-      const lineTotal = unit * qty;
-      return (
-        "• " +
-        qty +
-        "× " +
-        (item.name || "Produit") +
-        " — " +
-        formatPrice(unit) +
-        " / u. → " +
-        formatPrice(lineTotal)
-      );
+      const name = item.name || "Produit";
+      return qty > 1 ? "• " + qty + "× " + name : "• " + name;
     });
-    const total = cart.reduce((s, i) => s + (i.price || 0) * (i.qty || 1), 0);
     return (
-      "Maison Mona — Commande\n\n" +
-      "Bonjour,\n" +
-      "je souhaite commander les articles suivants :\n\n" +
+      "Bonjour, je suis intéressé par l'ensemble des articles sélectionnés :\n\n" +
       lines.join("\n") +
-      "\n\n" +
-      "Total : " +
-      formatPrice(total) +
-      "\n\n" +
-      "Merci."
+      "\n\nMerci."
     );
   }
 
@@ -171,14 +154,8 @@
       cartWaBtn.disabled = !hasWa;
     }
     if (cartWaHint) {
-      if (!hasWa) {
-        cartWaHint.hidden = false;
-        cartWaHint.textContent =
-          "Ajoutez WHATSAPP_ORDER_NUMBER dans le fichier .env du serveur (numéro international sans +).";
-      } else {
-        cartWaHint.hidden = true;
-        cartWaHint.textContent = "";
-      }
+      cartWaHint.hidden = true;
+      cartWaHint.textContent = "";
     }
   }
 
@@ -186,9 +163,7 @@
     const cart = getCart();
     if (cart.length === 0) return;
     if (!whatsappDigits || whatsappDigits.length < 8) {
-      alert(
-        "Numéro WhatsApp non configuré. Définissez WHATSAPP_ORDER_NUMBER dans le fichier .env du serveur."
-      );
+      alert("Numéro WhatsApp indisponible pour le moment. Réessayez plus tard.");
       return;
     }
     let text = buildWhatsAppMessage(cart);
@@ -270,7 +245,7 @@
           <h2 class="product-name">${escapeHtml(p.name || "")}</h2>
           <p class="product-meta">${meta}</p>
           <p class="product-price"><span class="currency">${formatPrice(p.price)}</span></p>
-          <button type="button" class="btn-cart" data-id="${escapeAttr(p._id)}">Ajouter au panier</button>
+          <button type="button" class="btn-cart" data-id="${escapeAttr(p._id)}">Précommander</button>
         </div>
       `;
       const imgEl = article.querySelector("img");
@@ -409,7 +384,33 @@
     applyFilters();
   }
 
+  async function loadHeroFashion() {
+    if (!document.getElementById("hero-fashion-img-0")) return;
+    try {
+      const r = await fetch("/api/site-settings");
+      if (!r.ok) return;
+      const j = await r.json();
+      if (!j.heroImages || !Array.isArray(j.heroImages)) return;
+      j.heroImages.forEach((url, i) => {
+        const img = document.getElementById("hero-fashion-img-" + i);
+        if (!img || !url) return;
+        img.addEventListener(
+          "error",
+          function heroImgErr() {
+            img.removeEventListener("error", heroImgErr);
+            img.src = PLACEHOLDER;
+          },
+          { once: true }
+        );
+        img.src = url;
+      });
+    } catch {
+      /* conserve les images du HTML */
+    }
+  }
+
   updateCartUi();
   loadOrderContact();
+  loadHeroFashion();
   load();
 })();

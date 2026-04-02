@@ -18,6 +18,7 @@
         <a href="/" class="logo">maison mona</a>
         <nav class="nav-main" aria-label="Navigation principale">
           <a href="/">Accueil</a>
+          <a href="/le-cercle.html">Le Cercle</a>
           <a href="#panier" id="nav-panier">Panier</a>
         </nav>
         <div class="header-search">
@@ -46,7 +47,55 @@
       </div>
     </header>
 
-    <section class="hero-shop" aria-labelledby="hero-title">
+    <section class="hero-fashion" aria-label="Collection mode">
+      <div class="hero-fashion-visual">
+        <div class="hero-fashion-col hero-fashion-col--tall">
+          <img
+            id="hero-fashion-img-0"
+            src="https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=900&q=85"
+            alt=""
+            width="900"
+            height="1350"
+            fetchpriority="high"
+          />
+        </div>
+        <div class="hero-fashion-col hero-fashion-col--stack">
+          <div class="hero-fashion-cell">
+            <img
+              id="hero-fashion-img-1"
+              src="https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=800&q=85"
+              alt=""
+              width="800"
+              height="1000"
+            />
+          </div>
+          <div class="hero-fashion-cell">
+            <img
+              id="hero-fashion-img-2"
+              src="https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=800&q=85"
+              alt=""
+              width="800"
+              height="1000"
+            />
+          </div>
+        </div>
+        <div class="hero-fashion-col hero-fashion-col--tall hero-fashion-col--end">
+          <img
+            id="hero-fashion-img-3"
+            src="https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=900&q=85"
+            alt=""
+            width="900"
+            height="1350"
+          />
+        </div>
+      </div>
+      <div class="hero-fashion-veil" aria-hidden="true"></div>
+      <div class="hero-fashion-cta">
+        <a href="#boutique" class="btn-hero-collection">Accéder à la collection</a>
+      </div>
+    </section>
+
+    <section class="hero-shop" id="boutique" aria-labelledby="hero-title">
       <div class="hero-shop-inner">
         <h1 id="hero-title" class="hero-title">Boutique</h1>
         <nav class="hero-cats" id="category-filter" aria-label="Catégories">
@@ -118,18 +167,10 @@
           <strong id="cart-panel-total">0 CFA</strong>
         </div>
         <button type="button" class="btn-whatsapp" id="cart-whatsapp-btn" disabled>
-          Valider la commande par WhatsApp
+          Précommander
         </button>
       </div>
     </aside>
-
-    <div class="chat-fab">
-      <div class="chat-bubble">Chattez avec nous 👋</div>
-      <button type="button" class="chat-btn" aria-label="Ouvrir le chat">
-        💬
-        <span class="dot" aria-hidden="true"></span>
-      </button>
-    </div>
 
     <script src="/js/shop.js"></script>
   </body>

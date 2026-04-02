@@ -6,6 +6,31 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const Product = require("./models/Product");
+const SiteSettings = require("./models/SiteSettings");
+
+const DEFAULT_HERO_IMAGES = [
+  "https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=900&q=85",
+  "https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=800&q=85",
+  "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=800&q=85",
+  "https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=900&q=85",
+];
+
+function mergeHeroImages(stored) {
+  const out = [...DEFAULT_HERO_IMAGES];
+  if (!stored || !Array.isArray(stored)) return out;
+  for (let i = 0; i < 4; i++) {
+    const u = stored[i] != null ? String(stored[i]).trim() : "";
+    if (u) out[i] = u;
+  }
+  return out;
+}
+
+function normalizeHeroInput(arr) {
+  if (!Array.isArray(arr)) return ["", "", "", ""];
+  const row = arr.slice(0, 4).map((s) => (s != null ? String(s).trim() : ""));
+  while (row.length < 4) row.push("");
+  return row;
+}
 
 const app = express();
 const PORT = process.env.PORT;
@@ -14,7 +39,7 @@ const ADMIN_KEY = process.env.ADMIN_KEY;
 /** Numéro international sans + ni espaces (ex. 2250712345678 pour la Côte d’Ivoire) */
 const WHATSAPP_ORDER_NUMBER = process.env.WHATSAPP_ORDER_NUMBER
   ? String(process.env.WHATSAPP_ORDER_NUMBER).replace(/\D/g, "")
-  : "";
+  : "22991180721";
 
 const uploadsDir = path.join(__dirname, "public", "uploads");
 if (!fs.existsSync(uploadsDir)) {
@@ -56,6 +81,41 @@ app.get("/api/health", (_req, res) => {
 /** Numéro WhatsApp pour les commandes (exposé au front pour wa.me) */
 app.get("/api/order-contact", (_req, res) => {
   res.json({ whatsapp: WHATSAPP_ORDER_NUMBER });
+});
+
+/** Images hero boutique (URLs effectives, publiques) */
+app.get("/api/site-settings", async (_req, res) => {
+  try {
+    const doc = await SiteSettings.findOne().lean();
+    res.json({ heroImages: mergeHeroImages(doc?.heroImages) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Valeurs brutes pour l’admin (vides = défaut serveur) */
+app.get("/api/site-settings/raw", requireAdmin, async (_req, res) => {
+  try {
+    const doc = await SiteSettings.findOne().lean();
+    const row = normalizeHeroInput(doc?.heroImages);
+    res.json({ heroImages: row });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put("/api/site-settings", requireAdmin, async (req, res) => {
+  try {
+    const row = normalizeHeroInput(req.body?.heroImages);
+    const doc = await SiteSettings.findOneAndUpdate(
+      {},
+      { heroImages: row },
+      { new: true, upsert: true }
+    );
+    res.json({ heroImages: mergeHeroImages(doc.heroImages) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 app.get("/api/products", async (_req, res) => {

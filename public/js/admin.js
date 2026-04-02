@@ -33,6 +33,8 @@
   document.getElementById("save-key").addEventListener("click", () => {
     setKey(keyInput.value);
     showMsg("Clé enregistrée localement.", "ok");
+    loadProducts();
+    loadHeroSettings();
   });
 
   function headersJson() {
@@ -64,6 +66,38 @@
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || "Upload échoué");
     return j.url;
+  }
+
+  function updateHeroPreview(i) {
+    const url = document.getElementById("hero-url-" + i).value.trim();
+    const prev = document.getElementById("hero-preview-" + i);
+    if (!prev) return;
+    if (url) {
+      prev.src = url;
+      prev.hidden = false;
+    } else {
+      prev.removeAttribute("src");
+      prev.hidden = true;
+    }
+  }
+
+  async function loadHeroSettings() {
+    const k = getKey();
+    if (!k) return;
+    try {
+      const r = await fetch("/api/site-settings/raw", { headers: { "X-Admin-Key": k } });
+      if (!r.ok) return;
+      const j = await r.json();
+      const row = j.heroImages || [];
+      for (let i = 0; i < 4; i++) {
+        document.getElementById("hero-url-" + i).value = row[i] || "";
+        const fileEl = document.getElementById("hero-file-" + i);
+        if (fileEl) fileEl.value = "";
+        updateHeroPreview(i);
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   async function loadProducts() {
@@ -211,5 +245,45 @@
     }
   }
 
+  document.getElementById("save-hero").addEventListener("click", async () => {
+    showMsg("", "");
+    const urls = [];
+    for (let i = 0; i < 4; i++) {
+      let u = document.getElementById("hero-url-" + i).value.trim();
+      const fileEl = document.getElementById("hero-file-" + i);
+      const f = fileEl && fileEl.files && fileEl.files[0];
+      if (f) {
+        try {
+          u = await uploadFile(f);
+          document.getElementById("hero-url-" + i).value = u;
+          fileEl.value = "";
+        } catch (err) {
+          showMsg(err.message || "Erreur upload (hero)", "err");
+          return;
+        }
+      }
+      urls.push(u);
+    }
+    try {
+      const r = await fetch("/api/site-settings", {
+        method: "PUT",
+        headers: headersJson(),
+        body: JSON.stringify({ heroImages: urls }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Erreur serveur");
+      showMsg("Images du hero enregistrées.", "ok");
+      for (let i = 0; i < 4; i++) updateHeroPreview(i);
+    } catch (err) {
+      showMsg(err.message || "Erreur", "err");
+    }
+  });
+
+  for (let i = 0; i < 4; i++) {
+    const inp = document.getElementById("hero-url-" + i);
+    if (inp) inp.addEventListener("input", () => updateHeroPreview(i));
+  }
+
   loadProducts();
+  loadHeroSettings();
 })();
