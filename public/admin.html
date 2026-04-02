@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin — Maison Mona</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body class="admin-page">
+    <div class="admin-inner">
+      <header class="admin-header">
+        <h1>Administration — <em style="font-weight: 700">maison mona</em></h1>
+        <div>
+          <a href="/" class="btn btn-ghost">Voir la boutique</a>
+        </div>
+      </header>
+
+      <div id="admin-msg"></div>
+
+      <section class="admin-card">
+        <h2>Clé d’accès</h2>
+        <p class="key-hint">
+          La même clé que <code>ADMIN_KEY</code> dans votre fichier <code>.env</code>. Elle est
+          enregistrée dans ce navigateur pour les requêtes sécurisées.
+        </p>
+        <div class="form-row">
+          <label for="admin-key">Clé admin</label>
+          <input type="password" id="admin-key" autocomplete="off" placeholder="Votre clé secrète" />
+        </div>
+        <button type="button" class="btn btn-primary" id="save-key">Enregistrer la clé</button>
+      </section>
+
+      <section class="admin-card">
+        <h2 id="form-title">Ajouter un produit</h2>
+        <form id="product-form">
+          <input type="hidden" id="edit-id" value="" />
+          <div class="form-row">
+            <label for="field-name">Nom</label>
+            <input type="text" id="field-name" required />
+          </div>
+          <div class="form-row">
+            <label for="field-desc">Description</label>
+            <textarea id="field-desc"></textarea>
+          </div>
+          <div class="form-row">
+            <label for="field-cat">Catégorie</label>
+            <input type="text" id="field-cat" placeholder="ex. Face care" />
+          </div>
+          <div class="form-row">
+            <label for="field-sub">Sous-catégorie</label>
+            <input type="text" id="field-sub" placeholder="ex. Crèmes hydratantes" />
+          </div>
+          <div class="form-row">
+            <label for="field-price">Prix (CFA)</label>
+            <input type="number" id="field-price" min="0" step="1" value="0" />
+          </div>
+          <div class="form-row">
+            <label for="field-image-url">URL de l’image</label>
+            <input type="url" id="field-image-url" placeholder="https://..." />
+          </div>
+          <div class="form-row">
+            <label for="field-image-file">Ou envoyer une image</label>
+            <input type="file" id="field-image-file" accept="image/*" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="submit-btn">Enregistrer</button>
+            <button type="button" class="btn btn-ghost" id="cancel-edit" hidden>Annuler l’édition</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-card">
+        <h2>Produits en ligne</h2>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="products-table">
+            <thead>
+              <tr>
+                <th>Image</th>
+                <th>Nom</th>
+                <th>Catégories</th>
+                <th>Prix</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="products-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    <script src="/js/admin.js"></script>
+  </body>
+</html>

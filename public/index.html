@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boutique — Maison Mona</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Montserrat:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a href="/" class="logo">maison mona</a>
+        <nav class="nav-main" aria-label="Navigation principale">
+          <a href="/">Accueil</a>
+          <a href="#panier" id="nav-panier">Panier</a>
+        </nav>
+        <div class="header-search">
+          <input
+            type="search"
+            id="shop-search"
+            placeholder="Recherche pour les produits"
+            autocomplete="off"
+            aria-label="Rechercher un produit"
+          />
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3-3" />
+          </svg>
+        </div>
+        <div class="header-actions">
+       
+          <div class="cart-wrap">
+            <button type="button" class="icon-btn" id="header-cart-btn" aria-label="Panier">
+              🛍
+              <span class="cart-badge" id="cart-count">0</span>
+            </button>
+            <span id="cart-total-label">0 CFA</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="hero-shop" aria-labelledby="hero-title">
+      <div class="hero-shop-inner">
+        <h1 id="hero-title" class="hero-title">Boutique</h1>
+        <nav class="hero-cats" id="category-filter" aria-label="Catégories">
+          <a href="#" data-cat="" class="is-active">Tout</a>
+          <a href="#" data-cat="body">Body care</a>
+          <a href="#" data-cat="face">Face care</a>
+          <a href="#" data-cat="box">Box</a>
+        </nav>
+        <div class="tagline-wrap">
+          <p class="tagline">
+            Prendre soin de sa peau est le plus bel investissement que l'on puisse faire.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <div class="shop-toolbar">
+      <div class="toolbar-show">
+        <span>Montrer :</span>
+        <button type="button" data-per="9">9</button>
+        <span>/</span>
+        <button type="button" data-per="12" class="is-active">12</button>
+        <span>/</span>
+        <button type="button" data-per="18">18</button>
+        <span>/</span>
+        <button type="button" data-per="24">24</button>
+      </div>
+      <div class="toolbar-views" aria-label="Affichage">
+        <button type="button" data-cols="list" title="Liste">☰</button>
+        <button type="button" data-cols="2" title="2 colonnes">▦</button>
+        <button type="button" data-cols="3" title="3 colonnes">▦</button>
+        <button type="button" data-cols="4" class="is-active" title="4 colonnes">▦</button>
+      </div>
+      <div class="toolbar-sort">
+        <label for="sort-select" class="visually-hidden">Tri</label>
+        <select id="sort-select" aria-label="Trier les produits">
+          <option value="default">Tri par défaut</option>
+          <option value="price-asc">Prix croissant</option>
+          <option value="price-desc">Prix décroissant</option>
+          <option value="name-asc">Nom A–Z</option>
+        </select>
+      </div>
+    </div>
+
+    <main class="shop-main">
+      <div id="shop-empty" class="empty-shop" hidden>Aucun produit pour le moment.</div>
+      <div id="product-grid" class="product-grid cols-4" role="list"></div>
+    </main>
+
+    <div id="cart-backdrop" class="cart-backdrop" hidden></div>
+    <aside
+      id="cart-panel"
+      class="cart-panel"
+      aria-labelledby="cart-title"
+      aria-hidden="true"
+    >
+      <div class="cart-panel-head">
+        <h2 id="cart-title" class="cart-title">Panier</h2>
+        <button type="button" class="cart-close" id="cart-close" aria-label="Fermer le panier">
+          ×
+        </button>
+      </div>
+      <div id="cart-empty" class="cart-empty">Votre panier est vide.</div>
+      <div id="cart-lines" class="cart-lines" role="list"></div>
+      <div class="cart-panel-foot">
+        <p id="cart-wa-hint" class="cart-wa-hint" hidden></p>
+        <div class="cart-total-row">
+          <span>Total</span>
+          <strong id="cart-panel-total">0 CFA</strong>
+        </div>
+        <button type="button" class="btn-whatsapp" id="cart-whatsapp-btn" disabled>
+          Valider la commande par WhatsApp
+        </button>
+      </div>
+    </aside>
+
+    <div class="chat-fab">
+      <div class="chat-bubble">Chattez avec nous 👋</div>
+      <button type="button" class="chat-btn" aria-label="Ouvrir le chat">
+        💬
+        <span class="dot" aria-hidden="true"></span>
+      </button>
+    </div>
+
+    <script src="/js/shop.js"></script>
+  </body>
+</html>
