@@ -8,6 +8,7 @@ const multer = require("multer");
 const Product = require("./models/Product");
 const SiteSettings = require("./models/SiteSettings");
 
+const isVercel = Boolean(process.env.VERCEL);
 const DEFAULT_HERO_IMAGES = [
   "https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=900&q=85",
   "https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=800&q=85",
@@ -33,38 +34,83 @@ function normalizeHeroInput(arr) {
 }
 
 const app = express();
-const PORT = process.env.PORT;
 const MONGODB_URI = process.env.MONGODB_URI;
 const ADMIN_KEY = process.env.ADMIN_KEY;
-/** Numéro international sans + ni espaces (ex. 2250712345678 pour la Côte d’Ivoire) */
 const WHATSAPP_ORDER_NUMBER = process.env.WHATSAPP_ORDER_NUMBER
   ? String(process.env.WHATSAPP_ORDER_NUMBER).replace(/\D/g, "")
   : "22991180721";
 
 const uploadsDir = path.join(__dirname, "public", "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+if (!isVercel) {
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+  } catch (e) {
+    console.warn("Impossible de créer public/uploads :", e.message);
+  }
 }
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadsDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname) || ".jpg";
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const ok = /^image\//.test(file.mimetype);
-    cb(ok ? null : new Error("Fichier image uniquement"), ok);
-  },
-});
+const imageFileFilter = (_req, file, cb) => {
+  const ok = /^image\//.test(file.mimetype);
+  cb(ok ? null : new Error("Fichier image uniquement"), ok);
+};
+
+let upload;
+if (isVercel) {
+  upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: imageFileFilter,
+  });
+} else {
+  const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname) || ".jpg";
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    },
+  });
+  upload = multer({
+    storage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: imageFileFilter,
+  });
+}
+
+async function connectDB() {
+  if (!MONGODB_URI || !String(MONGODB_URI).trim()) {
+    throw new Error("MONGODB_URI non défini");
+  }
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+  await mongoose.connect(MONGODB_URI, {
+    serverSelectionTimeoutMS: 10000,
+    maxPoolSize: isVercel ? 5 : 10,
+  });
+}
 
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+
+app.use(async (req, res, next) => {
+  const pathname = req.path || "/";
+  if (!pathname.startsWith("/api")) {
+    return next();
+  }
+  try {
+    await connectDB();
+    next();
+  } catch (e) {
+    console.error("MongoDB:", e.message);
+    res.status(500).json({
+      error:
+        "Base de données indisponible. Définissez MONGODB_URI dans les variables d’environnement Vercel (Atlas : IP 0.0.0.0/0).",
+    });
+  }
+});
 
 function requireAdmin(req, res, next) {
   const key = req.headers["x-admin-key"] || req.query.adminKey;
@@ -78,12 +124,10 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, mongo: mongoose.connection.readyState === 1 });
 });
 
-/** Numéro WhatsApp pour les commandes (exposé au front pour wa.me) */
 app.get("/api/order-contact", (_req, res) => {
   res.json({ whatsapp: WHATSAPP_ORDER_NUMBER });
 });
 
-/** Images hero boutique (URLs effectives, publiques) */
 app.get("/api/site-settings", async (_req, res) => {
   try {
     const doc = await SiteSettings.findOne().lean();
@@ -93,7 +137,6 @@ app.get("/api/site-settings", async (_req, res) => {
   }
 });
 
-/** Valeurs brutes pour l’admin (vides = défaut serveur) */
 app.get("/api/site-settings/raw", requireAdmin, async (_req, res) => {
   try {
     const doc = await SiteSettings.findOne().lean();
@@ -186,39 +229,56 @@ app.delete("/api/products/:id", requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/api/upload", requireAdmin, upload.single("image"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "Aucun fichier reçu." });
+app.post(
+  "/api/upload",
+  requireAdmin,
+  (req, res, next) => {
+    if (isVercel) {
+      return res.status(503).json({
+        error:
+          "L’upload de fichiers n’est pas disponible sur Vercel (système en lecture seule). Utilisez une URL d’image (CDN, Imgur, lien direct, etc.).",
+      });
+    }
+    next();
+  },
+  upload.single("image"),
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "Aucun fichier reçu." });
+    }
+    const url = `/uploads/${req.file.filename}`;
+    res.json({ url });
   }
-  const url = `/uploads/${req.file.filename}`;
-  res.json({ url });
-});
+);
 
-async function main() {
-  await mongoose.connect(MONGODB_URI, {
-    serverSelectionTimeoutMS: 15000,
-  });
-  const safeUri = MONGODB_URI.replace(/\/\/([^:]+):([^@]+)@/, "//$1:***@");
-  console.log("MongoDB connecté :", safeUri);
-  app.listen(PORT, () => {
-    console.log(`Maison Mona — http://localhost:${PORT}`);
-    console.log(`Admin — http://localhost:${PORT}/admin.html`);
-  });
+module.exports = app;
+
+if (require.main === module) {
+  const PORT = Number(process.env.PORT) || 3000;
+  connectDB()
+    .then(() => {
+      app.listen(PORT, () => {
+        const safeUri = String(MONGODB_URI || "").replace(
+          /\/\/([^:]+):([^@]+)@/,
+          "//$1:***@"
+        );
+        console.log("MongoDB connecté :", safeUri);
+        console.log(`Maison Mona — http://localhost:${PORT}`);
+        console.log(`Admin — http://localhost:${PORT}/admin.html`);
+      });
+    })
+    .catch((err) => {
+      console.error("\n❌ Connexion MongoDB impossible.\n");
+      if (String(MONGODB_URI).includes("127.0.0.1") || String(MONGODB_URI).includes("localhost")) {
+        console.error(
+          "→ MongoDB local n’est pas démarré, ou MONGODB_URI n’est pas chargé depuis .env.\n"
+        );
+      } else {
+        console.error(
+          "→ Vérifiez l’URI Atlas (Network Access → 0.0.0.0/0), le mot de passe et le nom de la base.\n"
+        );
+      }
+      console.error(err.message || err);
+      process.exit(1);
+    });
 }
-
-main().catch((err) => {
-  console.error("\n❌ Connexion MongoDB impossible.\n");
-  if (String(MONGODB_URI).includes("127.0.0.1") || String(MONGODB_URI).includes("localhost")) {
-    console.error(
-      "→ MongoDB local n’est pas démarré, ou MONGODB_URI n’est pas chargé depuis .env.\n" +
-        "   Vérifiez que le fichier .env est à la racine du projet et contient MONGODB_URI=...\n"
-    );
-  } else {
-    console.error(
-      "→ Vérifiez l’URI Atlas (nom de base après le domaine : /maison_mona), le mot de passe,\n" +
-        "   et dans Atlas : Network Access → IP autorisées (ex. 0.0.0.0/0 pour les tests).\n"
-    );
-  }
-  console.error(err.message || err);
-  process.exit(1);
-});
