@@ -187,24 +187,11 @@ if (!isVercel) {
 app.use(express.json({ limit: "2mb" }));
 app.use(mongoSanitize({ replaceWith: "_" }));
 
-app.use(async (req, res, next) => {
-  const raw = String(req.originalUrl || req.url || "/");
-  const pathname = raw.split("?")[0];
-  const needsMongo =
-    pathname.startsWith("/api") ||
-    pathname.startsWith("api/") ||
-    raw.includes("/api/");
-  if (!needsMongo) return next();
-  try {
-    await connectDB();
-    next();
-  } catch (e) {
-    if (!IS_PROD) console.error("MongoDB:", e.message);
-    res.status(503).json({
-      error: "Base de données indisponible. Réessayez dans quelques secondes.",
-    });
-  }
-});
+/** Routes qui DOIVENT répondre instantanément, sans attendre Mongo. */
+const NO_MONGO_PATHS = new Set([
+  "/api/health",
+  "/api/order-contact",
+]);
 
 app.get("/api/health", (_req, res) => {
   const stats = G[MONGO_STATS_KEY] || {};
@@ -216,7 +203,31 @@ app.get("/api/health", (_req, res) => {
     connectMs: stats.lastConnectMs,
     connects: stats.connects,
     lastError: stats.lastError,
+    isVercel,
+    nodeEnv: process.env.NODE_ENV || null,
   });
+});
+
+app.get("/api/order-contact", (_req, res) => {
+  res.json({ whatsapp: WHATSAPP_ORDER_NUMBER });
+});
+
+app.use(async (req, res, next) => {
+  const raw = String(req.originalUrl || req.url || "/");
+  const pathname = raw.split("?")[0];
+  const needsMongo =
+    (pathname.startsWith("/api") || pathname.startsWith("api/") || raw.includes("/api/")) &&
+    !NO_MONGO_PATHS.has(pathname);
+  if (!needsMongo) return next();
+  try {
+    await connectDB();
+    next();
+  } catch (e) {
+    if (!IS_PROD) console.error("MongoDB:", e.message);
+    res.status(503).json({
+      error: "Base de données indisponible. Réessayez dans quelques secondes.",
+    });
+  }
 });
 
 /** Diagnostic 504 : timings précis (DNS, connexion Mongo, ping). À lire depuis le navigateur. */
@@ -243,10 +254,6 @@ app.get("/api/debug/timing", async (_req, res) => {
     out.error = String(e && e.message ? e.message : e);
     res.status(500).json(out);
   }
-});
-
-app.get("/api/order-contact", (_req, res) => {
-  res.json({ whatsapp: WHATSAPP_ORDER_NUMBER });
 });
 
 /** Image stockée dans MongoDB (GridFS). */
