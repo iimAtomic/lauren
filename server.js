@@ -128,7 +128,9 @@ app.use(
 app.use(cors(corsOptions()));
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const ADMIN_KEY = process.env.ADMIN_KEY;
+/** Trim : une fin de ligne dans la variable Vercel empêchait la connexion (timingSafeEqual sur longueurs différentes). */
+const ADMIN_KEY =
+  process.env.ADMIN_KEY != null ? String(process.env.ADMIN_KEY).trim() : "";
 const WHATSAPP_ORDER_NUMBER = process.env.WHATSAPP_ORDER_NUMBER
   ? String(process.env.WHATSAPP_ORDER_NUMBER).replace(/\D/g, "")
   : "22991180721";
@@ -193,9 +195,8 @@ function resolveSessionSecret() {
   if (!IS_PROD) {
     return "__mm_local_dev_only_change_me__not_for_production__";
   }
-  const admin = ADMIN_KEY && String(ADMIN_KEY).trim();
-  if (admin) {
-    return crypto.createHash("sha256").update("mm-admin-session-v1|" + admin, "utf8").digest("hex");
+  if (ADMIN_KEY) {
+    return crypto.createHash("sha256").update("mm-admin-session-v1|" + ADMIN_KEY, "utf8").digest("hex");
   }
   return crypto
     .createHash("sha256")
@@ -235,7 +236,8 @@ app.use(
       maxAge: ADMIN_SESSION_MS,
       httpOnly: true,
       secure: IS_PROD,
-      sameSite: "strict",
+      /** lax : en prod (HTTPS) évite des blocages de cookie liés à strict + redirections / domaines */
+      sameSite: "lax",
       path: "/",
     },
     store: MONGODB_URI
@@ -276,23 +278,21 @@ app.post("/api/admin/login", adminLoginLimiter(), (req, res) => {
   const pwd = req.body && req.body.password;
   const pwdStr =
     pwd === undefined || pwd === null ? "" : String(pwd).slice(0, 1024);
-  if (!ADMIN_KEY || !String(ADMIN_KEY).trim()) {
+  if (!ADMIN_KEY) {
     return res.status(503).json({ error: "Service temporairement indisponible." });
   }
   if (!timingSafeAdminMatch(pwdStr, ADMIN_KEY)) {
     return res.status(401).json({ error: "Identifiants invalides." });
   }
-  req.session.regenerate((regErr) => {
-    if (regErr) return sendServerError(res, regErr);
-    req.session.admin = true;
-    req.session.createdAt = Date.now();
-    req.session.save((saveErr) => {
-      if (saveErr) return sendServerError(res, saveErr);
-      if (IS_PROD) {
-        return res.json({ ok: true });
-      }
-      res.json({ ok: true, expiresInSeconds: ADMIN_SESSION_MS / 1000 });
-    });
+  /** Pas de regenerate : avec MongoStore + serverless Vercel, regenerate échouait parfois (session non enregistrée). */
+  req.session.admin = true;
+  req.session.createdAt = Date.now();
+  req.session.save((saveErr) => {
+    if (saveErr) return sendServerError(res, saveErr);
+    if (IS_PROD) {
+      return res.json({ ok: true });
+    }
+    res.json({ ok: true, expiresInSeconds: ADMIN_SESSION_MS / 1000 });
   });
 });
 
@@ -306,7 +306,7 @@ app.post("/api/admin/logout", (req, res) => {
       path: "/",
       httpOnly: true,
       secure: IS_PROD,
-      sameSite: "strict",
+      sameSite: "lax",
     });
     res.json({ ok: true });
   });
