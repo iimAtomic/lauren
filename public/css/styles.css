@@ -1027,6 +1027,19 @@ body.cart-open {
   margin-bottom: 1.5rem;
 }
 
+.admin-cat-add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .admin-cat-add-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .admin-card h2 {
   margin: 0 0 1rem;
   font-size: 1rem;
@@ -1166,4 +1179,120 @@ body.cart-open {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   border: 0;
+}
+
+/* Accueil : entête sans recherche */
+.header-inner--home {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-inner--home .nav-main {
+  flex: 1;
+  justify-content: center;
+}
+
+@media (max-width: 720px) {
+  .header-inner--home {
+    flex-wrap: wrap;
+  }
+
+  .header-inner--home .nav-main {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+    padding-top: 0.35rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Transition plein écran avant navigation vers la boutique */
+.page-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: linear-gradient(
+    180deg,
+    var(--olive-deep) 0%,
+    var(--olive) 45%,
+    var(--olive-deep) 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.38s ease;
+}
+
+.page-transition.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body.is-page-leaving .hero-fashion {
+  pointer-events: none;
+}
+
+/* Entrée page boutique */
+.page-boutique .boutique-stage {
+  animation: mm-boutique-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes mm-boutique-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition {
+    transition-duration: 0.01ms !important;
+  }
+
+  .page-transition.is-active {
+    opacity: 1;
+  }
+
+  .page-boutique .boutique-stage {
+    animation: none !important;
+  }
+}
+
+/* Connexion admin (session serveur) */
+.admin-login-screen {
+  min-height: 85vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.admin-login-inner {
+  width: 100%;
+  max-width: 440px;
+}
+
+.admin-login-card .admin-login-title {
+  margin-top: 0;
+  font-size: 1.35rem;
+  color: var(--olive);
+}
+
+.admin-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.admin-msg-global {
+  padding-top: 1rem;
+  padding-bottom: 0;
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
 }

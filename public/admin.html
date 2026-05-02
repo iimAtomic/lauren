@@ -13,28 +13,41 @@
     <link rel="stylesheet" href="/css/styles.css" />
   </head>
   <body class="admin-page">
-    <div class="admin-inner">
+    <div id="admin-msg" class="admin-inner admin-msg-global"></div>
+
+    <div id="admin-login-screen" class="admin-login-screen">
+      <div class="admin-inner admin-login-inner">
+        <section class="admin-card admin-login-card">
+          <h1 class="admin-login-title">Administration — <em style="font-weight: 700">maison mona</em></h1>
+          <p class="key-hint">
+            Connexion sécurisée : le mot de passe est la valeur <code>ADMIN_KEY</code> du serveur. La session
+            expire automatiquement après <strong>1 heure</strong>.
+          </p>
+          <div class="form-row">
+            <label for="admin-password">Mot de passe</label>
+            <input
+              type="password"
+              id="admin-password"
+              autocomplete="current-password"
+              placeholder="Mot de passe administrateur"
+            />
+          </div>
+          <p id="admin-login-error" class="msg err" hidden></p>
+          <div class="form-actions">
+            <button type="button" class="btn btn-primary" id="admin-login-btn">Se connecter</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="admin-app" class="admin-inner" hidden>
       <header class="admin-header">
         <h1>Administration — <em style="font-weight: 700">maison mona</em></h1>
-        <div>
-          <a href="/" class="btn btn-ghost">Voir la boutique</a>
+        <div class="admin-header-actions">
+          <a href="/boutique.html" class="btn btn-ghost">Voir la boutique</a>
+          <button type="button" class="btn btn-ghost" id="admin-logout">Se déconnecter</button>
         </div>
       </header>
-
-      <div id="admin-msg"></div>
-
-      <section class="admin-card">
-        <h2>Clé d’accès</h2>
-        <p class="key-hint">
-          La même clé que <code>ADMIN_KEY</code> dans votre fichier <code>.env</code>. Elle est
-          enregistrée dans ce navigateur pour les requêtes sécurisées.
-        </p>
-        <div class="form-row">
-          <label for="admin-key">Clé admin</label>
-          <input type="password" id="admin-key" autocomplete="off" placeholder="Votre clé secrète" />
-        </div>
-        <button type="button" class="btn btn-primary" id="save-key">Enregistrer la clé</button>
-      </section>
 
       <section class="admin-card">
         <h2>Images du hero (boutique)</h2>
@@ -94,6 +107,41 @@
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-primary" id="save-hero">Enregistrer le hero</button>
+        </div>
+      </section>
+
+      <section class="admin-card">
+        <h2>Catégories (filtres boutique)</h2>
+        <p class="key-hint">
+          Les libellés s’affichent sous « Boutique ». Le mot-clé sert à filtrer les produits dont la
+          catégorie ou la sous-catégorie contient ce texte (sans tenir compte des majuscules), par ex.
+          <code>body</code>, <code>face</code>.
+        </p>
+        <div class="admin-table-wrap">
+          <table class="admin-table" id="categories-table">
+            <thead>
+              <tr>
+                <th>Libellé</th>
+                <th>Mot-clé</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="categories-tbody"></tbody>
+          </table>
+        </div>
+        <div class="form-row admin-cat-add-row">
+          <div>
+            <label for="new-cat-label">Nouvelle catégorie — libellé</label>
+            <input type="text" id="new-cat-label" placeholder="ex. Soins mains" autocomplete="off" />
+          </div>
+          <div>
+            <label for="new-cat-slug">Mot-clé (optionnel)</label>
+            <input type="text" id="new-cat-slug" placeholder="Généré depuis le libellé si vide" autocomplete="off" />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="add-category">Ajouter à la liste</button>
+          <button type="button" class="btn btn-primary" id="save-categories">Enregistrer les catégories</button>
         </div>
       </section>
 
