@@ -382,6 +382,9 @@
     });
   }
 
-  loadProducts();
-  loadHeroSettings();
+  /** Séquentiel : évite 2 cold starts Mongo parallèles sur Vercel (504 fréquent sinon). */
+  (async () => {
+    await loadHeroSettings();
+    await loadProducts();
+  })();
 })();

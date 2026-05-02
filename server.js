@@ -7,6 +7,8 @@ const cors = require("cors");
 const helmet = require("helmet");
 const mongoSanitize = require("express-mongo-sanitize");
 const mongoose = require("mongoose");
+/** Sans ça, les requêtes Mongo peuvent attendre indéfiniment si la connexion échoue → 504 Vercel */
+mongoose.set("bufferCommands", false);
 const multer = require("multer");
 const Product = require("./models/Product");
 const SiteSettings = require("./models/SiteSettings");
@@ -157,9 +159,13 @@ async function connectDB() {
   if (mongoose.connection.readyState === 1) {
     return;
   }
+  /** Hobby Vercel ~10s max : timeout sous 9s pour pouvoir répondre en JSON avant 504 */
+  const t = isVercel ? 9000 : 12000;
   await mongoose.connect(MONGODB_URI, {
-    serverSelectionTimeoutMS: isVercel ? 15000 : 12000,
-    maxPoolSize: isVercel ? 10 : 10,
+    serverSelectionTimeoutMS: t,
+    connectTimeoutMS: t,
+    socketTimeoutMS: isVercel ? 20000 : 45000,
+    maxPoolSize: isVercel ? 5 : 10,
   });
 }
 
@@ -169,10 +175,16 @@ app.use(mongoSanitize({ replaceWith: "_" }));
 /** Assets statiques avant les routes API */
 app.use(express.static(path.join(__dirname, "public")));
 
-/** Connexion Mongoose avant les routes /api */
+/**
+ * Connexion Mongo avant les routes qui en ont besoin.
+ * Sur Vercel, la fonction serverless ne reçoit en pratique que /api/* ; certains runtimes
+ * passent un chemin sans préfixe `/api` → on connecte toujours sur Vercel pour éviter
+ * des requêtes sans connexion (buffer désactivé = hang/504).
+ */
 app.use(async (req, res, next) => {
   const pathname = String(req.originalUrl || req.url || req.path || "/").split("?")[0];
-  if (!pathname.startsWith("/api")) {
+  const needsMongo = pathname.startsWith("/api") || isVercel;
+  if (!needsMongo) {
     return next();
   }
   try {
@@ -180,7 +192,9 @@ app.use(async (req, res, next) => {
     next();
   } catch (e) {
     if (!IS_PROD) console.error("MongoDB:", e.message);
-    res.status(500).json({ error: "Service temporairement indisponible." });
+    res.status(503).json({
+      error: "Base de données indisponible. Vérifiez MONGODB_URI et le réseau Atlas.",
+    });
   }
 });
 
