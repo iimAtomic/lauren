@@ -36,8 +36,19 @@
     return { "Content-Type": "application/json" };
   }
 
+  /** Une nouvelle tentative après ~1,6 s si gateway timeout ou surcharge (cold start Mongo). */
   async function apiFetch(url, opts = {}) {
-    return fetch(url, opts);
+    const method = String(opts.method || "GET").toUpperCase();
+    let r = await fetch(url, opts);
+    if (
+      method === "GET" &&
+      !opts.__retry &&
+      (r.status === 502 || r.status === 503 || r.status === 504)
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+      return fetch(url, { ...opts, __retry: true });
+    }
+    return r;
   }
 
   function showMsg(text, type) {
@@ -115,28 +126,71 @@
     });
   }
 
+  function applyHeroAndCategoriesFromJson(j) {
+    const row = j.heroImages || [];
+    for (let i = 0; i < 4; i++) {
+      const el = document.getElementById("hero-url-" + i);
+      if (el) el.value = row[i] || "";
+      const fileEl = document.getElementById("hero-file-" + i);
+      if (fileEl) fileEl.value = "";
+      updateHeroPreview(i);
+    }
+    if (Array.isArray(j.shopCategories)) {
+      shopCategoriesState = j.shopCategories.map((row) => ({
+        label: row.label != null ? String(row.label) : "",
+        slug: row.slug != null ? String(row.slug) : "",
+      }));
+      renderCategoriesAdmin();
+    }
+  }
+
   async function loadHeroSettings() {
     try {
       const r = await apiFetch("/api/site-settings/raw");
       if (!r.ok) return;
       const j = await r.json();
-      const row = j.heroImages || [];
-      for (let i = 0; i < 4; i++) {
-        document.getElementById("hero-url-" + i).value = row[i] || "";
-        const fileEl = document.getElementById("hero-file-" + i);
-        if (fileEl) fileEl.value = "";
-        updateHeroPreview(i);
-      }
-      if (Array.isArray(j.shopCategories)) {
-        shopCategoriesState = j.shopCategories.map((row) => ({
-          label: row.label != null ? String(row.label) : "",
-          slug: row.slug != null ? String(row.slug) : "",
-        }));
-        renderCategoriesAdmin();
-      }
+      applyHeroAndCategoriesFromJson(j);
     } catch {
       /* ignore */
     }
+  }
+
+  function renderProductRows(list) {
+    tbody.innerHTML = "";
+    list.forEach((p) => {
+      const tr = document.createElement("tr");
+      const thumb = p.image_url
+        ? `<img class="thumb" src="${escapeAttr(p.image_url)}" alt="" data-fallback="1" />`
+        : "—";
+      tr.innerHTML = `
+        <td>${thumb}</td>
+        <td>${escapeHtml(p.name || "")}</td>
+        <td>${escapeHtml([p.category, p.sub_category].filter(Boolean).join(" · "))}</td>
+        <td>${formatPrice(p.price)}</td>
+        <td>
+          <button type="button" class="btn btn-ghost btn-edit" data-id="${escapeAttr(p._id)}">Modifier</button>
+          <button type="button" class="btn btn-danger btn-del" data-id="${escapeAttr(p._id)}">Supprimer</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    tbody.querySelectorAll("img[data-fallback]").forEach((img) => {
+      img.addEventListener(
+        "error",
+        function thumbErr() {
+          img.removeEventListener("error", thumbErr);
+          img.replaceWith(document.createTextNode("—"));
+        },
+        { once: true }
+      );
+    });
+    tbody.querySelectorAll(".btn-edit").forEach((btn) => {
+      btn.addEventListener("click", () => startEdit(btn.getAttribute("data-id")));
+    });
+    tbody.querySelectorAll(".btn-del").forEach((btn) => {
+      btn.addEventListener("click", () => removeProduct(btn.getAttribute("data-id")));
+    });
   }
 
   async function loadProducts() {
@@ -147,33 +201,30 @@
         return;
       }
       const list = await r.json();
-      tbody.innerHTML = "";
-      list.forEach((p) => {
-        const tr = document.createElement("tr");
-        const thumb = p.image_url
-          ? `<img class="thumb" src="${escapeAttr(p.image_url)}" alt="" />`
-          : "—";
-        tr.innerHTML = `
-        <td>${thumb}</td>
-        <td>${escapeHtml(p.name || "")}</td>
-        <td>${escapeHtml([p.category, p.sub_category].filter(Boolean).join(" · "))}</td>
-        <td>${formatPrice(p.price)}</td>
-        <td>
-          <button type="button" class="btn btn-ghost btn-edit" data-id="${escapeAttr(p._id)}">Modifier</button>
-          <button type="button" class="btn btn-danger btn-del" data-id="${escapeAttr(p._id)}">Supprimer</button>
-        </td>
-      `;
-        tbody.appendChild(tr);
-      });
-
-      tbody.querySelectorAll(".btn-edit").forEach((btn) => {
-        btn.addEventListener("click", () => startEdit(btn.getAttribute("data-id")));
-      });
-      tbody.querySelectorAll(".btn-del").forEach((btn) => {
-        btn.addEventListener("click", () => removeProduct(btn.getAttribute("data-id")));
-      });
+      renderProductRows(Array.isArray(list) ? list : []);
     } catch {
       tbody.innerHTML = "";
+    }
+  }
+
+  /** Un seul appel serveur au chargement : moins de cold starts / risque de 504. */
+  async function loadAdminBootstrap() {
+    try {
+      const r = await apiFetch("/api/admin/bootstrap");
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        const msg =
+          r.status === 503 || r.status === 504
+            ? "Le serveur met du temps à répondre (base de données). Rechargez la page dans quelques secondes."
+            : j.error || "Impossible de charger les données admin.";
+        showMsg(msg, "err");
+        return;
+      }
+      const j = await r.json();
+      applyHeroAndCategoriesFromJson(j);
+      renderProductRows(Array.isArray(j.products) ? j.products : []);
+    } catch {
+      showMsg("Réseau indisponible. Vérifiez votre connexion puis rechargez la page.", "err");
     }
   }
 
@@ -289,23 +340,40 @@
 
   document.getElementById("save-hero").addEventListener("click", async () => {
     showMsg("", "");
-    const urls = [];
-    for (let i = 0; i < 4; i++) {
-      let u = document.getElementById("hero-url-" + i).value.trim();
+
+    /** Upload des 4 fichiers en parallèle quand présents — beaucoup plus rapide en réseau lent. */
+    const slots = Array.from({ length: 4 }, (_, i) => {
+      const urlEl = document.getElementById("hero-url-" + i);
       const fileEl = document.getElementById("hero-file-" + i);
-      const f = fileEl && fileEl.files && fileEl.files[0];
-      if (f) {
-        try {
-          u = await uploadFile(f);
-          document.getElementById("hero-url-" + i).value = u;
-          fileEl.value = "";
-        } catch (err) {
-          showMsg(err.message || "Erreur upload (hero)", "err");
-          return;
-        }
-      }
-      urls.push(u);
+      return {
+        i,
+        urlEl,
+        fileEl,
+        currentUrl: urlEl ? urlEl.value.trim() : "",
+        file: fileEl && fileEl.files && fileEl.files[0] ? fileEl.files[0] : null,
+      };
+    });
+
+    let uploads;
+    try {
+      uploads = await Promise.all(
+        slots.map((s) => (s.file ? uploadFile(s.file) : Promise.resolve(null)))
+      );
+    } catch (err) {
+      showMsg(err.message || "Erreur upload (hero)", "err");
+      return;
     }
+
+    const urls = slots.map((s, idx) => {
+      const uploaded = uploads[idx];
+      if (uploaded) {
+        s.urlEl.value = uploaded;
+        if (s.fileEl) s.fileEl.value = "";
+        return uploaded;
+      }
+      return s.currentUrl;
+    });
+
     try {
       const r = await apiFetch("/api/site-settings", {
         method: "PUT",
@@ -382,9 +450,5 @@
     });
   }
 
-  /** Séquentiel : évite 2 cold starts Mongo parallèles sur Vercel (504 fréquent sinon). */
-  (async () => {
-    await loadHeroSettings();
-    await loadProducts();
-  })();
+  loadAdminBootstrap();
 })();
