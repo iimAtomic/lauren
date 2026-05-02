@@ -4,6 +4,8 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
+const mongoSanitize = require("express-mongo-sanitize");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const session = require("express-session");
@@ -16,6 +18,10 @@ const {
   sanitizeProductPatch,
   validationErrorForProduct,
   sendServerError,
+  corsOptions,
+  apiGeneralLimiter,
+  apiAdminLimiter,
+  adminLoginLimiter,
   IS_PROD,
 } = require("./lib/security");
 
@@ -97,14 +103,16 @@ if (process.env.VERCEL || process.env.TRUST_PROXY === "1") {
   app.set("trust proxy", 1);
 }
 
+/** CSP désactivée (fonts / assets). CORP cross-origin : évite des blocages fetch / cookies en prod. */
 app.use(
-  cors({
-    origin: true,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
+
+app.use(cors(corsOptions()));
 
 const MONGODB_URI = process.env.MONGODB_URI;
 /** Trim : une fin de ligne dans la variable Vercel empêchait la connexion (timingSafeEqual sur longueurs différentes). */
@@ -160,9 +168,8 @@ async function connectDB() {
     return;
   }
   await mongoose.connect(MONGODB_URI, {
-    /** Sur Vercel le plafond fonction est court : échouer vite plutôt que 504 */
-    serverSelectionTimeoutMS: isVercel ? 8000 : 10000,
-    maxPoolSize: isVercel ? 5 : 10,
+    serverSelectionTimeoutMS: isVercel ? 15000 : 12000,
+    maxPoolSize: isVercel ? 10 : 10,
   });
 }
 
@@ -184,6 +191,7 @@ function resolveSessionSecret() {
 }
 
 app.use(express.json({ limit: "2mb" }));
+app.use(mongoSanitize({ replaceWith: "_" }));
 
 /** Assets statiques avant session/cookies : évite que le CSS soit retardé ou bloqué par MongoStore */
 app.use(express.static(path.join(__dirname, "public")));
@@ -227,6 +235,8 @@ app.use(
   })
 );
 
+app.use("/api", apiGeneralLimiter());
+
 function requireAdmin(req, res, next) {
   if (req.session && req.session.admin === true) {
     return next();
@@ -250,7 +260,7 @@ app.get("/api/admin/session", (req, res) => {
   res.json({ authenticated: false });
 });
 
-app.post("/api/admin/login", (req, res) => {
+app.post("/api/admin/login", adminLoginLimiter(), (req, res) => {
   const pwd = req.body && req.body.password;
   const pwdStr =
     pwd === undefined || pwd === null ? "" : String(pwd).slice(0, 1024);
@@ -289,10 +299,10 @@ app.post("/api/admin/logout", (req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  if (IS_PROD) {
-    return res.json({ ok: true });
-  }
-  res.json({ ok: true, mongo: mongoose.connection.readyState === 1 });
+  res.json({
+    ok: true,
+    mongo: mongoose.connection.readyState,
+  });
 });
 
 app.get("/api/order-contact", (_req, res) => {
@@ -311,7 +321,7 @@ app.get("/api/site-settings", async (_req, res) => {
   }
 });
 
-app.get("/api/site-settings/raw", requireAdmin, async (_req, res) => {
+app.get("/api/site-settings/raw", apiAdminLimiter(), requireAdmin, async (_req, res) => {
   try {
     const doc = await SiteSettings.findOne().lean();
     const row = normalizeHeroInput(doc?.heroImages);
@@ -328,7 +338,7 @@ app.get("/api/site-settings/raw", requireAdmin, async (_req, res) => {
   }
 });
 
-app.put("/api/site-settings", requireAdmin, async (req, res) => {
+app.put("/api/site-settings", apiAdminLimiter(), requireAdmin, async (req, res) => {
   try {
     const body = req.body || {};
     const $set = {};
@@ -370,7 +380,7 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
-app.post("/api/products", requireAdmin, async (req, res) => {
+app.post("/api/products", apiAdminLimiter(), requireAdmin, async (req, res) => {
   try {
     const fields = sanitizeProductFields(req.body);
     const ve = validationErrorForProduct(fields);
@@ -382,7 +392,7 @@ app.post("/api/products", requireAdmin, async (req, res) => {
   }
 });
 
-app.put("/api/products/:id", requireAdmin, async (req, res) => {
+app.put("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res) => {
   try {
     const patch = sanitizeProductPatch(req.body);
     if (Object.keys(patch).length === 0) {
@@ -399,7 +409,7 @@ app.put("/api/products/:id", requireAdmin, async (req, res) => {
   }
 });
 
-app.delete("/api/products/:id", requireAdmin, async (req, res) => {
+app.delete("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res) => {
   try {
     const p = await Product.findByIdAndDelete(req.params.id);
     if (!p) return res.status(404).json({ error: "Produit introuvable." });
@@ -411,6 +421,7 @@ app.delete("/api/products/:id", requireAdmin, async (req, res) => {
 
 app.post(
   "/api/upload",
+  apiAdminLimiter(),
   requireAdmin,
   upload.single("image"),
   async (req, res) => {
