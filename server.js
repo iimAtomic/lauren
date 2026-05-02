@@ -4,8 +4,6 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
-const helmet = require("helmet");
-const mongoSanitize = require("express-mongo-sanitize");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const session = require("express-session");
@@ -13,15 +11,11 @@ const { MongoStore } = require("connect-mongo");
 const Product = require("./models/Product");
 const SiteSettings = require("./models/SiteSettings");
 const {
-  timingSafeAdminMatch,
+  adminPasswordMatch,
   sanitizeProductFields,
   sanitizeProductPatch,
   validationErrorForProduct,
   sendServerError,
-  corsOptions,
-  apiGeneralLimiter,
-  apiAdminLimiter,
-  adminLoginLimiter,
   IS_PROD,
 } = require("./lib/security");
 
@@ -104,28 +98,13 @@ if (process.env.VERCEL || process.env.TRUST_PROXY === "1") {
 }
 
 app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "https://fonts.googleapis.com"],
-        fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", "data:", "https:", "blob:"],
-        connectSrc: ["'self'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-        frameAncestors: ["'none'"],
-        objectSrc: ["'none'"],
-        ...(IS_PROD ? { upgradeInsecureRequests: [] } : {}),
-      },
-    },
-    crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: { policy: "cross-origin" },
+  cors({
+    origin: true,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type"],
   })
 );
-
-app.use(cors(corsOptions()));
 
 const MONGODB_URI = process.env.MONGODB_URI;
 /** Trim : une fin de ligne dans la variable Vercel empêchait la connexion (timingSafeEqual sur longueurs différentes). */
@@ -205,7 +184,6 @@ function resolveSessionSecret() {
 }
 
 app.use(express.json({ limit: "2mb" }));
-app.use(mongoSanitize({ replaceWith: "_" }));
 
 /** Assets statiques avant session/cookies : évite que le CSS soit retardé ou bloqué par MongoStore */
 app.use(express.static(path.join(__dirname, "public")));
@@ -249,8 +227,6 @@ app.use(
   })
 );
 
-app.use("/api", apiGeneralLimiter());
-
 function requireAdmin(req, res, next) {
   if (req.session && req.session.admin === true) {
     return next();
@@ -274,14 +250,14 @@ app.get("/api/admin/session", (req, res) => {
   res.json({ authenticated: false });
 });
 
-app.post("/api/admin/login", adminLoginLimiter(), (req, res) => {
+app.post("/api/admin/login", (req, res) => {
   const pwd = req.body && req.body.password;
   const pwdStr =
     pwd === undefined || pwd === null ? "" : String(pwd).slice(0, 1024);
   if (!ADMIN_KEY) {
     return res.status(503).json({ error: "Service temporairement indisponible." });
   }
-  if (!timingSafeAdminMatch(pwdStr, ADMIN_KEY)) {
+  if (!adminPasswordMatch(pwdStr, ADMIN_KEY)) {
     return res.status(401).json({ error: "Identifiants invalides." });
   }
   /** Pas de regenerate : avec MongoStore + serverless Vercel, regenerate échouait parfois (session non enregistrée). */
@@ -335,7 +311,7 @@ app.get("/api/site-settings", async (_req, res) => {
   }
 });
 
-app.get("/api/site-settings/raw", apiAdminLimiter(), requireAdmin, async (_req, res) => {
+app.get("/api/site-settings/raw", requireAdmin, async (_req, res) => {
   try {
     const doc = await SiteSettings.findOne().lean();
     const row = normalizeHeroInput(doc?.heroImages);
@@ -352,7 +328,7 @@ app.get("/api/site-settings/raw", apiAdminLimiter(), requireAdmin, async (_req, 
   }
 });
 
-app.put("/api/site-settings", apiAdminLimiter(), requireAdmin, async (req, res) => {
+app.put("/api/site-settings", requireAdmin, async (req, res) => {
   try {
     const body = req.body || {};
     const $set = {};
@@ -394,7 +370,7 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
-app.post("/api/products", apiAdminLimiter(), requireAdmin, async (req, res) => {
+app.post("/api/products", requireAdmin, async (req, res) => {
   try {
     const fields = sanitizeProductFields(req.body);
     const ve = validationErrorForProduct(fields);
@@ -406,7 +382,7 @@ app.post("/api/products", apiAdminLimiter(), requireAdmin, async (req, res) => {
   }
 });
 
-app.put("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res) => {
+app.put("/api/products/:id", requireAdmin, async (req, res) => {
   try {
     const patch = sanitizeProductPatch(req.body);
     if (Object.keys(patch).length === 0) {
@@ -423,7 +399,7 @@ app.put("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res) =
   }
 });
 
-app.delete("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res) => {
+app.delete("/api/products/:id", requireAdmin, async (req, res) => {
   try {
     const p = await Product.findByIdAndDelete(req.params.id);
     if (!p) return res.status(404).json({ error: "Produit introuvable." });
@@ -435,7 +411,6 @@ app.delete("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res
 
 app.post(
   "/api/upload",
-  apiAdminLimiter(),
   requireAdmin,
   upload.single("image"),
   async (req, res) => {
