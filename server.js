@@ -20,6 +20,10 @@ const {
 
 const isVercel = Boolean(process.env.VERCEL);
 const MONGODB_URI = process.env.MONGODB_URI;
+
+mongoose.set("strictQuery", true);
+/** Pas de mise en attente des commandes : si Mongo n’est pas prêt, on échoue net (pas de hang silencieux → 504). */
+mongoose.set("bufferCommands", false);
 const WHATSAPP_ORDER_NUMBER = process.env.WHATSAPP_ORDER_NUMBER
   ? String(process.env.WHATSAPP_ORDER_NUMBER).replace(/\D/g, "")
   : "22991180721";
@@ -127,6 +131,11 @@ const upload = multer({
 /** Réutilisé entre invocations Vercel (warm) — évite de reconnecter à chaque requête. */
 const G = globalThis;
 const MONGO_PROMISE_KEY = "__maisonMonaMongoConnect__";
+const MONGO_STATS_KEY = "__maisonMonaMongoStats__";
+
+if (!G[MONGO_STATS_KEY]) {
+  G[MONGO_STATS_KEY] = { lastConnectMs: null, connects: 0, lastError: null };
+}
 
 async function connectDB() {
   if (!MONGODB_URI || !String(MONGODB_URI).trim()) {
@@ -134,22 +143,40 @@ async function connectDB() {
   }
   if (mongoose.connection.readyState === 1) return;
   if (!G[MONGO_PROMISE_KEY]) {
-    /** Hobby Vercel ~10s : laisser ~9,5s à Atlas pour répondre, sinon JSON 503 explicite (≠ 504 silencieux). */
-    const t = isVercel ? 9500 : 20000;
+    /** Plafond Vercel Hobby ~10s. On vise large pour la 1re connexion (cold + DNS SRV). */
+    const t = isVercel ? 8000 : 20000;
+    const t0 = Date.now();
     G[MONGO_PROMISE_KEY] = mongoose
       .connect(MONGODB_URI, {
         serverSelectionTimeoutMS: t,
         connectTimeoutMS: t,
-        socketTimeoutMS: isVercel ? 25000 : 45000,
+        socketTimeoutMS: isVercel ? 20000 : 45000,
         maxPoolSize: isVercel ? 5 : 10,
+        appName: "maison-mona",
       })
-      .then((m) => m)
+      .then((m) => {
+        G[MONGO_STATS_KEY].lastConnectMs = Date.now() - t0;
+        G[MONGO_STATS_KEY].connects += 1;
+        G[MONGO_STATS_KEY].lastError = null;
+        return m;
+      })
       .catch((err) => {
+        G[MONGO_STATS_KEY].lastError = String(err && err.message ? err.message : err);
         delete G[MONGO_PROMISE_KEY];
         throw err;
       });
   }
   await G[MONGO_PROMISE_KEY];
+}
+
+/** Garantit qu’un handler répond en JSON avant le plafond Vercel (504 sinon). */
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`timeout ${label} > ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
 /** Statique d’abord en local (évite de traverser tout le pipeline pour /css, /js, …). */
@@ -180,11 +207,42 @@ app.use(async (req, res, next) => {
 });
 
 app.get("/api/health", (_req, res) => {
+  const stats = G[MONGO_STATS_KEY] || {};
   res.json({
     ok: true,
     mongo: mongoose.connection.readyState,
     region: process.env.VERCEL_REGION || null,
+    cold: !mongoose.connection.readyState,
+    connectMs: stats.lastConnectMs,
+    connects: stats.connects,
+    lastError: stats.lastError,
   });
+});
+
+/** Diagnostic 504 : timings précis (DNS, connexion Mongo, ping). À lire depuis le navigateur. */
+app.get("/api/debug/timing", async (_req, res) => {
+  const out = { region: process.env.VERCEL_REGION || null, steps: [] };
+  const stamp = (label, ms) => out.steps.push({ label, ms });
+  try {
+    const t0 = Date.now();
+    await connectDB();
+    stamp("connectDB", Date.now() - t0);
+
+    const t1 = Date.now();
+    await mongoose.connection.db.admin().ping();
+    stamp("ping", Date.now() - t1);
+
+    const t2 = Date.now();
+    await SiteSettings.findOne().lean();
+    stamp("findOne(SiteSettings)", Date.now() - t2);
+
+    out.ok = true;
+    res.json(out);
+  } catch (e) {
+    out.ok = false;
+    out.error = String(e && e.message ? e.message : e);
+    res.status(500).json(out);
+  }
 });
 
 app.get("/api/order-contact", (_req, res) => {
@@ -341,11 +399,18 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
 
 /** Admin : un seul appel (un seul cold start) au lieu de /raw + /products. */
 app.get("/api/admin/bootstrap", async (_req, res) => {
+  /** Plafond interne sous le plafond Vercel pour répondre en JSON 503 plutôt qu’un 504 opaque. */
+  const internalCap = isVercel ? 8500 : 25000;
   try {
-    const [doc, products] = await Promise.all([
-      SiteSettings.findOne().lean(),
-      Product.find().sort({ createdAt: -1 }).lean(),
-    ]);
+    const data = await withTimeout(
+      Promise.all([
+        SiteSettings.findOne().lean(),
+        Product.find().sort({ createdAt: -1 }).lean(),
+      ]),
+      internalCap,
+      "bootstrap"
+    );
+    const [doc, products] = data;
     const row = normalizeHeroInput(doc?.heroImages);
     const rawCats = doc?.shopCategories;
     const shopCategories =
@@ -356,7 +421,11 @@ app.get("/api/admin/bootstrap", async (_req, res) => {
           : [];
     res.json({ heroImages: row, shopCategories, products });
   } catch (e) {
-    return sendServerError(res, e);
+    if (!IS_PROD) console.error("[bootstrap]", e);
+    return res.status(503).json({
+      error:
+        "Base de données trop lente à répondre. Région Atlas / région Vercel à vérifier (voir /api/debug/timing).",
+    });
   }
 });
 
