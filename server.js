@@ -1,25 +1,20 @@
 const path = require("path");
-const crypto = require("crypto");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
-const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const mongoSanitize = require("express-mongo-sanitize");
 const mongoose = require("mongoose");
-/** Sans ça, les requêtes Mongo peuvent attendre indéfiniment si la connexion échoue → 504 Vercel */
-mongoose.set("bufferCommands", false);
 const multer = require("multer");
 const Product = require("./models/Product");
 const SiteSettings = require("./models/SiteSettings");
+const { saveImageBuffer, publicUrlPath, streamImageById } = require("./lib/gridfs");
 const {
   sanitizeProductFields,
   sanitizeProductPatch,
   validationErrorForProduct,
   sendServerError,
   corsOptions,
-  apiGeneralLimiter,
-  apiAdminLimiter,
   IS_PROD,
 } = require("./lib/security");
 
@@ -114,43 +109,19 @@ const WHATSAPP_ORDER_NUMBER = process.env.WHATSAPP_ORDER_NUMBER
   ? String(process.env.WHATSAPP_ORDER_NUMBER).replace(/\D/g, "")
   : "22991180721";
 
-const uploadsDir = path.join(__dirname, "public", "uploads");
-if (!isVercel) {
-  try {
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-  } catch (e) {
-    if (!IS_PROD) console.warn("Impossible de créer public/uploads :", e.message);
-  }
-}
-
 const imageFileFilter = (_req, file, cb) => {
   const ok = /^image\//.test(file.mimetype);
   cb(ok ? null : new Error("Fichier image uniquement"), ok);
 };
 
-let upload;
-if (isVercel) {
-  upload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter: imageFileFilter,
-  });
-} else {
-  const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname) || ".jpg";
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
-    },
-  });
-  upload = multer({
-    storage,
-    limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter: imageFileFilter,
-  });
-}
+/** Images → MongoDB GridFS (local comme Vercel, pas de disque ni Vercel Blob). */
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: imageFileFilter,
+});
+
+let mongoConnectPromise = null;
 
 async function connectDB() {
   if (!MONGODB_URI || !String(MONGODB_URI).trim()) {
@@ -159,14 +130,21 @@ async function connectDB() {
   if (mongoose.connection.readyState === 1) {
     return;
   }
-  /** Hobby Vercel ~10s max : timeout sous 9s pour pouvoir répondre en JSON avant 504 */
-  const t = isVercel ? 9000 : 12000;
-  await mongoose.connect(MONGODB_URI, {
-    serverSelectionTimeoutMS: t,
-    connectTimeoutMS: t,
-    socketTimeoutMS: isVercel ? 20000 : 45000,
-    maxPoolSize: isVercel ? 5 : 10,
-  });
+  if (!mongoConnectPromise) {
+    const t = isVercel ? 10000 : 20000;
+    mongoConnectPromise = mongoose
+      .connect(MONGODB_URI, {
+        serverSelectionTimeoutMS: t,
+        connectTimeoutMS: t,
+        socketTimeoutMS: isVercel ? 25000 : 45000,
+        maxPoolSize: 10,
+      })
+      .catch((err) => {
+        mongoConnectPromise = null;
+        throw err;
+      });
+  }
+  await mongoConnectPromise;
 }
 
 app.use(express.json({ limit: "2mb" }));
@@ -198,8 +176,6 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.use("/api", apiGeneralLimiter());
-
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
@@ -209,6 +185,16 @@ app.get("/api/health", (_req, res) => {
 
 app.get("/api/order-contact", (_req, res) => {
   res.json({ whatsapp: WHATSAPP_ORDER_NUMBER });
+});
+
+/** Fichiers image stockés dans MongoDB (GridFS). */
+app.get("/api/media/:id", async (req, res) => {
+  try {
+    await streamImageById(req.params.id, res);
+  } catch (e) {
+    if (!IS_PROD) console.error("[media]", e);
+    if (!res.headersSent) res.status(500).end();
+  }
 });
 
 app.get("/api/site-settings", async (_req, res) => {
@@ -223,7 +209,7 @@ app.get("/api/site-settings", async (_req, res) => {
   }
 });
 
-app.get("/api/site-settings/raw", apiAdminLimiter(), async (_req, res) => {
+app.get("/api/site-settings/raw", async (_req, res) => {
   try {
     const doc = await SiteSettings.findOne().lean();
     const row = normalizeHeroInput(doc?.heroImages);
@@ -240,7 +226,7 @@ app.get("/api/site-settings/raw", apiAdminLimiter(), async (_req, res) => {
   }
 });
 
-app.put("/api/site-settings", apiAdminLimiter(), async (req, res) => {
+app.put("/api/site-settings", async (req, res) => {
   try {
     const body = req.body || {};
     const $set = {};
@@ -282,7 +268,7 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
-app.post("/api/products", apiAdminLimiter(), async (req, res) => {
+app.post("/api/products", async (req, res) => {
   try {
     const fields = sanitizeProductFields(req.body);
     const ve = validationErrorForProduct(fields);
@@ -294,7 +280,7 @@ app.post("/api/products", apiAdminLimiter(), async (req, res) => {
   }
 });
 
-app.put("/api/products/:id", apiAdminLimiter(), async (req, res) => {
+app.put("/api/products/:id", async (req, res) => {
   try {
     const patch = sanitizeProductPatch(req.body);
     if (Object.keys(patch).length === 0) {
@@ -311,7 +297,7 @@ app.put("/api/products/:id", apiAdminLimiter(), async (req, res) => {
   }
 });
 
-app.delete("/api/products/:id", apiAdminLimiter(), async (req, res) => {
+app.delete("/api/products/:id", async (req, res) => {
   try {
     const p = await Product.findByIdAndDelete(req.params.id);
     if (!p) return res.status(404).json({ error: "Produit introuvable." });
@@ -321,45 +307,24 @@ app.delete("/api/products/:id", apiAdminLimiter(), async (req, res) => {
   }
 });
 
-app.post(
-  "/api/upload",
-  apiAdminLimiter(),
-  upload.single("image"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "Aucun fichier reçu." });
-      }
-
-      if (isVercel) {
-        const buf = req.file.buffer;
-        if (!buf || !Buffer.isBuffer(buf)) {
-          return res.status(400).json({ error: "Fichier invalide." });
-        }
-        const { put } = require("@vercel/blob");
-        const rawExt = path.extname(req.file.originalname || "") || ".jpg";
-        const safeExt = /^\.[a-z0-9]{1,8}$/i.test(rawExt) ? rawExt.toLowerCase() : ".jpg";
-        const pathname = `uploads/${Date.now()}-${crypto.randomBytes(8).toString("hex")}${safeExt}`;
-        const blob = await put(pathname, buf, {
-          access: "public",
-          contentType: req.file.mimetype || "image/jpeg",
-          ...(process.env.BLOB_READ_WRITE_TOKEN
-            ? { token: process.env.BLOB_READ_WRITE_TOKEN }
-            : {}),
-        });
-        return res.json({ url: blob.url });
-      }
-
-      const url = `/uploads/${req.file.filename}`;
-      return res.json({ url });
-    } catch (e) {
-      if (IS_PROD) {
-        return res.status(503).json({ error: "Envoi du fichier impossible pour le moment." });
-      }
-      return sendServerError(res, e);
+app.post("/api/upload", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Aucun fichier reçu." });
     }
+    const buf = req.file.buffer;
+    if (!buf || !Buffer.isBuffer(buf)) {
+      return res.status(400).json({ error: "Fichier invalide." });
+    }
+    const id = await saveImageBuffer(buf, req.file.originalname, req.file.mimetype);
+    return res.json({ url: publicUrlPath(id) });
+  } catch (e) {
+    if (IS_PROD) {
+      return res.status(503).json({ error: "Envoi du fichier impossible pour le moment." });
+    }
+    return sendServerError(res, e);
   }
-);
+});
 
 module.exports = app;
 
