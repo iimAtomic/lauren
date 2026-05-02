@@ -1,8 +1,8 @@
 {
   "regions": ["iad1"],
   "rewrites": [
-    { "source": "/", "destination": "/index.html" },
-    { "source": "/api/((?!ping).*)", "destination": "/api/index" }
+    { "source": "/api/ping", "destination": "/api/ping" },
+    { "source": "/api/:path*", "destination": "/api/index" }
   ],
   "functions": {
     "api/index.js": {

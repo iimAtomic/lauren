@@ -179,10 +179,11 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
-/** Statique d’abord en local (évite de traverser tout le pipeline pour /css, /js, …). */
-if (!isVercel) {
-  app.use(express.static(path.join(__dirname, "public")));
-}
+/**
+ * Statique toujours activé.
+ * Important : si Vercel route accidentellement "/" vers Express, Express sert quand même le site.
+ */
+app.use(express.static(path.join(__dirname, "public")));
 
 app.use(express.json({ limit: "2mb" }));
 app.use(mongoSanitize({ replaceWith: "_" }));
@@ -434,6 +435,13 @@ app.get("/api/admin/bootstrap", async (_req, res) => {
         "Base de données trop lente à répondre. Région Atlas / région Vercel à vérifier (voir /api/debug/timing).",
     });
   }
+});
+
+/** Fallback site : si une URL non-API arrive jusqu’à Express, on sert l’accueil. */
+app.get("*", (req, res, next) => {
+  const pathname = String(req.path || "/");
+  if (pathname.startsWith("/api")) return next();
+  return res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 /**
