@@ -397,22 +397,6 @@
       if (!r.ok) return;
       const j = await r.json();
 
-      if (j.heroImages && Array.isArray(j.heroImages)) {
-        j.heroImages.forEach((url, i) => {
-          const img = document.getElementById("hero-fashion-img-" + i);
-          if (!img || !url) return;
-          img.addEventListener(
-            "error",
-            function heroImgErr() {
-              img.removeEventListener("error", heroImgErr);
-              img.src = PLACEHOLDER;
-            },
-            { once: true }
-          );
-          img.src = url;
-        });
-      }
-
       const nav = document.getElementById("category-filter");
       if (nav && Array.isArray(j.shopCategories)) {
         const links = [

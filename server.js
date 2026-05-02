@@ -29,10 +29,10 @@ const WHATSAPP_ORDER_NUMBER = process.env.WHATSAPP_ORDER_NUMBER
   : "22991180721";
 
 const DEFAULT_HERO_IMAGES = [
-  "https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=900&q=85",
-  "https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&w=800&q=85",
-  "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=800&q=85",
-  "https://images.unsplash.com/photo-1469334031218-e382a71b716b?auto=format&fit=crop&w=900&q=85",
+  "/uploads/MAKE8243.JPG",
+  "/uploads/MAKE8338.JPG",
+  "/uploads/MAKE8414.JPG",
+  "/uploads/MAKE8440.JPG",
 ];
 
 const DEFAULT_SHOP_CATEGORIES = [
