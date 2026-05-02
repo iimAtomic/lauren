@@ -179,7 +179,8 @@ async function connectDB() {
     return;
   }
   await mongoose.connect(MONGODB_URI, {
-    serverSelectionTimeoutMS: 10000,
+    /** Sur Vercel le plafond fonction est court : échouer vite plutôt que 504 */
+    serverSelectionTimeoutMS: isVercel ? 8000 : 10000,
     maxPoolSize: isVercel ? 5 : 10,
   });
 }
@@ -205,6 +206,24 @@ function resolveSessionSecret() {
 app.use(express.json({ limit: "2mb" }));
 app.use(mongoSanitize({ replaceWith: "_" }));
 
+/** Assets statiques avant session/cookies : évite que le CSS soit retardé ou bloqué par MongoStore */
+app.use(express.static(path.join(__dirname, "public")));
+
+/** Connexion Mongoose avant les routes /api (sessions incluses) pour limiter les délais cumulés */
+app.use(async (req, res, next) => {
+  const pathname = String(req.originalUrl || req.url || req.path || "/").split("?")[0];
+  if (!pathname.startsWith("/api")) {
+    return next();
+  }
+  try {
+    await connectDB();
+    next();
+  } catch (e) {
+    if (!IS_PROD) console.error("MongoDB:", e.message);
+    res.status(500).json({ error: "Service temporairement indisponible." });
+  }
+});
+
 app.use(
   session({
     name: "mm_admin",
@@ -229,21 +248,6 @@ app.use(
 );
 
 app.use("/api", apiGeneralLimiter());
-app.use(express.static(path.join(__dirname, "public")));
-
-app.use(async (req, res, next) => {
-  const pathname = req.path || "/";
-  if (!pathname.startsWith("/api")) {
-    return next();
-  }
-  try {
-    await connectDB();
-    next();
-  } catch (e) {
-    if (!IS_PROD) console.error("MongoDB:", e.message);
-    res.status(500).json({ error: "Service temporairement indisponible." });
-  }
-});
 
 function requireAdmin(req, res, next) {
   if (req.session && req.session.admin === true) {

@@ -1,6 +1,6 @@
 {
   "name": "maison-mona",
-  "version": "1.0.0",
+  "version": "242B22",
   "description": "Boutique Maison Mona — Express + MongoDB",
   "main": "server.js",
   "scripts": {
