@@ -15,37 +15,11 @@
   <body class="admin-page">
     <div id="admin-msg" class="admin-inner admin-msg-global"></div>
 
-    <div id="admin-login-screen" class="admin-login-screen">
-      <div class="admin-inner admin-login-inner">
-        <section class="admin-card admin-login-card">
-          <h1 class="admin-login-title">Administration — <em style="font-weight: 700">maison mona</em></h1>
-          <p class="key-hint">
-            Saisissez le mot de passe administrateur. La session expire automatiquement après
-            <strong>1 heure</strong>.
-          </p>
-          <div class="form-row">
-            <label for="admin-password">Mot de passe</label>
-            <input
-              type="password"
-              id="admin-password"
-              autocomplete="current-password"
-              placeholder="Mot de passe administrateur"
-            />
-          </div>
-          <p id="admin-login-error" class="msg err" hidden></p>
-          <div class="form-actions">
-            <button type="button" class="btn btn-primary" id="admin-login-btn">Se connecter</button>
-          </div>
-        </section>
-      </div>
-    </div>
-
-    <div id="admin-app" class="admin-inner" hidden>
+    <div id="admin-app" class="admin-inner">
       <header class="admin-header">
         <h1>Administration — <em style="font-weight: 700">maison mona</em></h1>
         <div class="admin-header-actions">
           <a href="/boutique.html" class="btn btn-ghost">Voir la boutique</a>
-          <button type="button" class="btn btn-ghost" id="admin-logout">Se déconnecter</button>
         </div>
       </header>
 

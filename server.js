@@ -8,12 +8,9 @@ const helmet = require("helmet");
 const mongoSanitize = require("express-mongo-sanitize");
 const mongoose = require("mongoose");
 const multer = require("multer");
-const session = require("express-session");
-const { MongoStore } = require("connect-mongo");
 const Product = require("./models/Product");
 const SiteSettings = require("./models/SiteSettings");
 const {
-  adminPasswordMatch,
   sanitizeProductFields,
   sanitizeProductPatch,
   validationErrorForProduct,
@@ -21,12 +18,8 @@ const {
   corsOptions,
   apiGeneralLimiter,
   apiAdminLimiter,
-  adminLoginLimiter,
   IS_PROD,
 } = require("./lib/security");
-
-/** Durée de session admin : 1 h après connexion (cookie + entrée MongoDB) */
-const ADMIN_SESSION_MS = 60 * 60 * 1000;
 
 const isVercel = Boolean(process.env.VERCEL);
 const DEFAULT_HERO_IMAGES = [
@@ -115,9 +108,6 @@ app.use(
 app.use(cors(corsOptions()));
 
 const MONGODB_URI = process.env.MONGODB_URI;
-/** Trim : une fin de ligne dans la variable Vercel empêchait la connexion (timingSafeEqual sur longueurs différentes). */
-const ADMIN_KEY =
-  process.env.ADMIN_KEY != null ? String(process.env.ADMIN_KEY).trim() : "";
 const WHATSAPP_ORDER_NUMBER = process.env.WHATSAPP_ORDER_NUMBER
   ? String(process.env.WHATSAPP_ORDER_NUMBER).replace(/\D/g, "")
   : "22991180721";
@@ -173,30 +163,13 @@ async function connectDB() {
   });
 }
 
-function resolveSessionSecret() {
-  const s = process.env.SESSION_SECRET;
-  if (s && String(s).trim().length >= 24) {
-    return String(s).trim();
-  }
-  if (!IS_PROD) {
-    return "__mm_local_dev_only_change_me__not_for_production__";
-  }
-  if (ADMIN_KEY) {
-    return crypto.createHash("sha256").update("mm-admin-session-v1|" + ADMIN_KEY, "utf8").digest("hex");
-  }
-  return crypto
-    .createHash("sha256")
-    .update("mm-emergency-session|" + String(process.env.VERCEL_URL || "default"), "utf8")
-    .digest("hex");
-}
-
 app.use(express.json({ limit: "2mb" }));
 app.use(mongoSanitize({ replaceWith: "_" }));
 
-/** Assets statiques avant session/cookies : évite que le CSS soit retardé ou bloqué par MongoStore */
+/** Assets statiques avant les routes API */
 app.use(express.static(path.join(__dirname, "public")));
 
-/** Connexion Mongoose avant les routes /api (sessions incluses) pour limiter les délais cumulés */
+/** Connexion Mongoose avant les routes /api */
 app.use(async (req, res, next) => {
   const pathname = String(req.originalUrl || req.url || req.path || "/").split("?")[0];
   if (!pathname.startsWith("/api")) {
@@ -211,92 +184,7 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.use(
-  session({
-    name: "mm_admin",
-    secret: resolveSessionSecret(),
-    resave: false,
-    saveUninitialized: false,
-    rolling: false,
-    cookie: {
-      maxAge: ADMIN_SESSION_MS,
-      httpOnly: true,
-      secure: IS_PROD,
-      /** lax : en prod (HTTPS) évite des blocages de cookie liés à strict + redirections / domaines */
-      sameSite: "lax",
-      path: "/",
-    },
-    store: MONGODB_URI
-      ? MongoStore.create({
-          mongoUrl: String(MONGODB_URI).trim(),
-          ttl: ADMIN_SESSION_MS / 1000,
-        })
-      : undefined,
-  })
-);
-
 app.use("/api", apiGeneralLimiter());
-
-function requireAdmin(req, res, next) {
-  if (req.session && req.session.admin === true) {
-    return next();
-  }
-  return res.status(401).json({
-    error: IS_PROD ? "Non autorisé." : "Session expirée ou accès non autorisé. Reconnectez-vous.",
-  });
-}
-
-app.get("/api/admin/session", (req, res) => {
-  if (req.session && req.session.admin === true) {
-    if (IS_PROD) {
-      return res.json({ authenticated: true });
-    }
-    const created = req.session.createdAt || 0;
-    return res.json({
-      authenticated: true,
-      expiresAt: created + ADMIN_SESSION_MS,
-    });
-  }
-  res.json({ authenticated: false });
-});
-
-app.post("/api/admin/login", adminLoginLimiter(), (req, res) => {
-  const pwd = req.body && req.body.password;
-  const pwdStr =
-    pwd === undefined || pwd === null ? "" : String(pwd).slice(0, 1024);
-  if (!ADMIN_KEY) {
-    return res.status(503).json({ error: "Service temporairement indisponible." });
-  }
-  if (!adminPasswordMatch(pwdStr, ADMIN_KEY)) {
-    return res.status(401).json({ error: "Identifiants invalides." });
-  }
-  /** Pas de regenerate : avec MongoStore + serverless Vercel, regenerate échouait parfois (session non enregistrée). */
-  req.session.admin = true;
-  req.session.createdAt = Date.now();
-  req.session.save((saveErr) => {
-    if (saveErr) return sendServerError(res, saveErr);
-    if (IS_PROD) {
-      return res.json({ ok: true });
-    }
-    res.json({ ok: true, expiresInSeconds: ADMIN_SESSION_MS / 1000 });
-  });
-});
-
-app.post("/api/admin/logout", (req, res) => {
-  if (!req.session) {
-    return res.json({ ok: true });
-  }
-  req.session.destroy((err) => {
-    if (err) return sendServerError(res, err);
-    res.clearCookie("mm_admin", {
-      path: "/",
-      httpOnly: true,
-      secure: IS_PROD,
-      sameSite: "lax",
-    });
-    res.json({ ok: true });
-  });
-});
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -321,7 +209,7 @@ app.get("/api/site-settings", async (_req, res) => {
   }
 });
 
-app.get("/api/site-settings/raw", apiAdminLimiter(), requireAdmin, async (_req, res) => {
+app.get("/api/site-settings/raw", apiAdminLimiter(), async (_req, res) => {
   try {
     const doc = await SiteSettings.findOne().lean();
     const row = normalizeHeroInput(doc?.heroImages);
@@ -338,7 +226,7 @@ app.get("/api/site-settings/raw", apiAdminLimiter(), requireAdmin, async (_req, 
   }
 });
 
-app.put("/api/site-settings", apiAdminLimiter(), requireAdmin, async (req, res) => {
+app.put("/api/site-settings", apiAdminLimiter(), async (req, res) => {
   try {
     const body = req.body || {};
     const $set = {};
@@ -380,7 +268,7 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
-app.post("/api/products", apiAdminLimiter(), requireAdmin, async (req, res) => {
+app.post("/api/products", apiAdminLimiter(), async (req, res) => {
   try {
     const fields = sanitizeProductFields(req.body);
     const ve = validationErrorForProduct(fields);
@@ -392,7 +280,7 @@ app.post("/api/products", apiAdminLimiter(), requireAdmin, async (req, res) => {
   }
 });
 
-app.put("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res) => {
+app.put("/api/products/:id", apiAdminLimiter(), async (req, res) => {
   try {
     const patch = sanitizeProductPatch(req.body);
     if (Object.keys(patch).length === 0) {
@@ -409,7 +297,7 @@ app.put("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res) =
   }
 });
 
-app.delete("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res) => {
+app.delete("/api/products/:id", apiAdminLimiter(), async (req, res) => {
   try {
     const p = await Product.findByIdAndDelete(req.params.id);
     if (!p) return res.status(404).json({ error: "Produit introuvable." });
@@ -422,7 +310,6 @@ app.delete("/api/products/:id", apiAdminLimiter(), requireAdmin, async (req, res
 app.post(
   "/api/upload",
   apiAdminLimiter(),
-  requireAdmin,
   upload.single("image"),
   async (req, res) => {
     try {

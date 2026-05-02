@@ -1,9 +1,9 @@
-/* Maison Mona — fond site #242B22, or, blanc */
+/* Maison Mona — couleur dominante #1F4D40, or, blanc */
 :root {
-  --olive: #242b22;
-  --bg-site: #242b22;
-  --olive-deep: #151a14;
-  --olive-light: #6a7a62;
+  --olive: #1f4d40;
+  --bg-site: #1f4d40;
+  --olive-deep: #14382f;
+  --olive-light: #6aad9e;
   --gold: #c9a227;
   --gold-hover: #ddb92e;
   --white: #ffffff;
@@ -298,7 +298,7 @@ img {
 .btn-hero-collection:hover {
   background: var(--white);
   border-color: var(--white);
-  color: #242b22;
+  color: #1f4d40;
   transform: translateY(-2px);
 }
 
@@ -362,7 +362,7 @@ img {
     145deg,
     var(--olive-deep) 0%,
     var(--bg-site) 42%,
-    #2a3228 100%
+    #2a5c50 100%
   );
   overflow: hidden;
 }
@@ -494,7 +494,7 @@ img {
 .toolbar-views button.is-active {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(255, 255, 255, 0.95);
-  color: #242b22;
+  color: #1f4d40;
 }
 
 .toolbar-sort select {
@@ -633,7 +633,7 @@ img {
   padding: 0.75rem 1rem;
   border: none;
   background: var(--white);
-  color: #242b22;
+  color: #1f4d40;
   font-family: inherit;
   font-size: 0.68rem;
   font-weight: 700;
@@ -645,7 +645,7 @@ img {
 
 .btn-cart:hover {
   background: var(--gold-hover);
-  color: #242b22;
+  color: #1f4d40;
 }
 
 .empty-shop {
@@ -958,7 +958,7 @@ body.cart-open {
 .btn-cercle-shop:hover {
   background: var(--white);
   border-color: var(--white);
-  color: #242b22;
+  color: #1f4d40;
 }
 
 

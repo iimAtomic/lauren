@@ -1,13 +1,5 @@
 (function () {
-  const FETCH_CRED = { credentials: "include" };
-
   const msgEl = document.getElementById("admin-msg");
-  const loginScreen = document.getElementById("admin-login-screen");
-  const adminApp = document.getElementById("admin-app");
-  const loginPwd = document.getElementById("admin-password");
-  const loginBtn = document.getElementById("admin-login-btn");
-  const loginErr = document.getElementById("admin-login-error");
-  const logoutBtn = document.getElementById("admin-logout");
 
   const form = document.getElementById("product-form");
   const editIdEl = document.getElementById("edit-id");
@@ -44,31 +36,8 @@
     return { "Content-Type": "application/json" };
   }
 
-  function showLoggedOut() {
-    if (loginScreen) loginScreen.hidden = false;
-    if (adminApp) adminApp.hidden = true;
-    if (loginPwd) loginPwd.value = "";
-    if (loginErr) {
-      loginErr.hidden = true;
-      loginErr.textContent = "";
-    }
-  }
-
-  function showLoggedIn() {
-    if (loginScreen) loginScreen.hidden = true;
-    if (adminApp) adminApp.hidden = false;
-    loadProducts();
-    loadHeroSettings();
-  }
-
-  async function fetchCred(url, opts = {}) {
-    const r = await fetch(url, { ...FETCH_CRED, ...opts });
-    if (r.status === 401 && adminApp && !adminApp.hidden) {
-      showLoggedOut();
-      showMsg("Session expirée ou accès refusé. Reconnectez-vous.", "err");
-      throw new Error("401");
-    }
-    return r;
+  async function apiFetch(url, opts = {}) {
+    return fetch(url, opts);
   }
 
   function showMsg(text, type) {
@@ -84,7 +53,7 @@
   async function uploadFile(file) {
     const fd = new FormData();
     fd.append("image", file);
-    const r = await fetchCred("/api/upload", { method: "POST", body: fd });
+    const r = await apiFetch("/api/upload", { method: "POST", body: fd });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || "Upload échoué");
     return j.url;
@@ -148,7 +117,7 @@
 
   async function loadHeroSettings() {
     try {
-      const r = await fetchCred("/api/site-settings/raw");
+      const r = await apiFetch("/api/site-settings/raw");
       if (!r.ok) return;
       const j = await r.json();
       const row = j.heroImages || [];
@@ -172,7 +141,7 @@
 
   async function loadProducts() {
     try {
-      const r = await fetchCred("/api/products");
+      const r = await apiFetch("/api/products");
       if (!r.ok) {
         tbody.innerHTML = "";
         return;
@@ -236,7 +205,7 @@
   }
 
   async function startEdit(id) {
-    const r = await fetch("/api/products/" + encodeURIComponent(id), FETCH_CRED);
+    const r = await apiFetch("/api/products/" + encodeURIComponent(id));
     if (!r.ok) {
       showMsg("Produit introuvable.", "err");
       return;
@@ -287,7 +256,7 @@
     const method = editing ? "PUT" : "POST";
 
     try {
-      const r = await fetchCred(url, {
+      const r = await apiFetch(url, {
         method,
         headers: headersJson(),
         body: JSON.stringify(body),
@@ -298,7 +267,7 @@
       resetForm();
       await loadProducts();
     } catch (err) {
-      if (err.message !== "401") showMsg(err.message || "Erreur", "err");
+      showMsg(err.message || "Erreur", "err");
     }
   });
 
@@ -306,7 +275,7 @@
     if (!confirm("Supprimer ce produit ?")) return;
     showMsg("", "");
     try {
-      const r = await fetchCred("/api/products/" + encodeURIComponent(id), {
+      const r = await apiFetch("/api/products/" + encodeURIComponent(id), {
         method: "DELETE",
       });
       const j = await r.json().catch(() => ({}));
@@ -314,7 +283,7 @@
       showMsg("Produit supprimé.", "ok");
       await loadProducts();
     } catch (err) {
-      if (err.message !== "401") showMsg(err.message || "Erreur", "err");
+      showMsg(err.message || "Erreur", "err");
     }
   }
 
@@ -338,7 +307,7 @@
       urls.push(u);
     }
     try {
-      const r = await fetchCred("/api/site-settings", {
+      const r = await apiFetch("/api/site-settings", {
         method: "PUT",
         headers: headersJson(),
         body: JSON.stringify({ heroImages: urls }),
@@ -348,7 +317,7 @@
       showMsg("Images du hero enregistrées.", "ok");
       for (let i = 0; i < 4; i++) updateHeroPreview(i);
     } catch (err) {
-      if (err.message !== "401") showMsg(err.message || "Erreur", "err");
+      showMsg(err.message || "Erreur", "err");
     }
   });
 
@@ -398,7 +367,7 @@
         }))
         .filter((c) => c.label && c.slug);
       try {
-        const r = await fetchCred("/api/site-settings", {
+        const r = await apiFetch("/api/site-settings", {
           method: "PUT",
           headers: headersJson(),
           body: JSON.stringify({ shopCategories: payload }),
@@ -408,82 +377,11 @@
         showMsg("Catégories enregistrées.", "ok");
         await loadHeroSettings();
       } catch (err) {
-        if (err.message !== "401") showMsg(err.message || "Erreur", "err");
+        showMsg(err.message || "Erreur", "err");
       }
     });
   }
 
-  async function tryLogin() {
-    if (loginErr) {
-      loginErr.hidden = true;
-      loginErr.textContent = "";
-    }
-    const pwd = loginPwd ? loginPwd.value : "";
-    if (!pwd.trim()) {
-      if (loginErr) {
-        loginErr.textContent = "Saisissez le mot de passe.";
-        loginErr.hidden = false;
-      }
-      return;
-    }
-    try {
-      const r = await fetch("/api/admin/login", {
-        ...FETCH_CRED,
-        method: "POST",
-        headers: headersJson(),
-        body: JSON.stringify({ password: pwd }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        if (loginErr) {
-          loginErr.textContent = j.error || "Connexion impossible.";
-          loginErr.hidden = false;
-        }
-        return;
-      }
-      showLoggedIn();
-      showMsg("Connecté. Session valable 1 heure.", "ok");
-    } catch {
-      if (loginErr) {
-        loginErr.textContent = "Erreur réseau.";
-        loginErr.hidden = false;
-      }
-    }
-  }
-
-  if (loginBtn) loginBtn.addEventListener("click", tryLogin);
-  if (loginPwd) {
-    loginPwd.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") tryLogin();
-    });
-  }
-
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", async () => {
-      showMsg("", "");
-      try {
-        await fetch("/api/admin/logout", { ...FETCH_CRED, method: "POST" });
-      } catch {
-        /* ignore */
-      }
-      showLoggedOut();
-      showMsg("Vous êtes déconnecté.", "ok");
-    });
-  }
-
-  async function boot() {
-    try {
-      const r = await fetch("/api/admin/session", FETCH_CRED);
-      const j = await r.json();
-      if (j.authenticated === true) {
-        showLoggedIn();
-      } else {
-        showLoggedOut();
-      }
-    } catch {
-      showLoggedOut();
-    }
-  }
-
-  boot();
+  loadProducts();
+  loadHeroSettings();
 })();
