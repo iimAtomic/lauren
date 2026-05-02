@@ -1,4 +1,5 @@
 const path = require("path");
+const crypto = require("crypto");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const fs = require("fs");
 const express = require("express");
@@ -139,7 +140,7 @@ if (!isVercel) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
   } catch (e) {
-    console.warn("Impossible de créer public/uploads :", e.message);
+    if (!IS_PROD) console.warn("Impossible de créer public/uploads :", e.message);
   }
 }
 
@@ -191,13 +192,14 @@ function resolveSessionSecret() {
   if (!IS_PROD) {
     return "__mm_local_dev_only_change_me__not_for_production__";
   }
-  throw new Error(
-    "SESSION_SECRET manquant ou trop court (min. 24 caractères). Ajoutez-le au déploiement et dans .env en local si vous utilisez NODE_ENV=production."
-  );
-}
-
-if (!MONGODB_URI || !String(MONGODB_URI).trim()) {
-  console.warn("Attention : MONGODB_URI absent — les sessions admin ne pourront pas persister.");
+  const admin = ADMIN_KEY && String(ADMIN_KEY).trim();
+  if (admin) {
+    return crypto.createHash("sha256").update("mm-admin-session-v1|" + admin, "utf8").digest("hex");
+  }
+  return crypto
+    .createHash("sha256")
+    .update("mm-emergency-session|" + String(process.env.VERCEL_URL || "default"), "utf8")
+    .digest("hex");
 }
 
 app.use(express.json({ limit: "2mb" }));
@@ -238,11 +240,8 @@ app.use(async (req, res, next) => {
     await connectDB();
     next();
   } catch (e) {
-    console.error("MongoDB:", e.message);
-    res.status(500).json({
-      error:
-        "Base de données indisponible. Définissez MONGODB_URI dans les variables d’environnement Vercel (Atlas : IP 0.0.0.0/0).",
-    });
+    if (!IS_PROD) console.error("MongoDB:", e.message);
+    res.status(500).json({ error: "Service temporairement indisponible." });
   }
 });
 
@@ -251,12 +250,15 @@ function requireAdmin(req, res, next) {
     return next();
   }
   return res.status(401).json({
-    error: "Session expirée ou accès non autorisé. Reconnectez-vous.",
+    error: IS_PROD ? "Non autorisé." : "Session expirée ou accès non autorisé. Reconnectez-vous.",
   });
 }
 
 app.get("/api/admin/session", (req, res) => {
   if (req.session && req.session.admin === true) {
+    if (IS_PROD) {
+      return res.json({ authenticated: true });
+    }
     const created = req.session.createdAt || 0;
     return res.json({
       authenticated: true,
@@ -271,8 +273,7 @@ app.post("/api/admin/login", adminLoginLimiter(), (req, res) => {
   const pwdStr =
     pwd === undefined || pwd === null ? "" : String(pwd).slice(0, 1024);
   if (!ADMIN_KEY || !String(ADMIN_KEY).trim()) {
-    console.warn("ADMIN_KEY non défini : connexion admin impossible.");
-    return res.status(503).json({ error: "Configuration serveur incomplète." });
+    return res.status(503).json({ error: "Service temporairement indisponible." });
   }
   if (!timingSafeAdminMatch(pwdStr, ADMIN_KEY)) {
     return res.status(401).json({ error: "Identifiants invalides." });
@@ -283,6 +284,9 @@ app.post("/api/admin/login", adminLoginLimiter(), (req, res) => {
     req.session.createdAt = Date.now();
     req.session.save((saveErr) => {
       if (saveErr) return sendServerError(res, saveErr);
+      if (IS_PROD) {
+        return res.json({ ok: true });
+      }
       res.json({ ok: true, expiresInSeconds: ADMIN_SESSION_MS / 1000 });
     });
   });
@@ -305,6 +309,9 @@ app.post("/api/admin/logout", (req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
+  if (IS_PROD) {
+    return res.json({ ok: true });
+  }
   res.json({ ok: true, mongo: mongoose.connection.readyState === 1 });
 });
 
@@ -426,22 +433,40 @@ app.post(
   "/api/upload",
   apiAdminLimiter(),
   requireAdmin,
-  (req, res, next) => {
-    if (isVercel) {
-      return res.status(503).json({
-        error:
-          "L’upload de fichiers n’est pas disponible sur Vercel (système en lecture seule). Utilisez une URL d’image (CDN, Imgur, lien direct, etc.).",
-      });
-    }
-    next();
-  },
   upload.single("image"),
-  (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: "Aucun fichier reçu." });
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Aucun fichier reçu." });
+      }
+
+      if (isVercel) {
+        const buf = req.file.buffer;
+        if (!buf || !Buffer.isBuffer(buf)) {
+          return res.status(400).json({ error: "Fichier invalide." });
+        }
+        const { put } = require("@vercel/blob");
+        const rawExt = path.extname(req.file.originalname || "") || ".jpg";
+        const safeExt = /^\.[a-z0-9]{1,8}$/i.test(rawExt) ? rawExt.toLowerCase() : ".jpg";
+        const pathname = `uploads/${Date.now()}-${crypto.randomBytes(8).toString("hex")}${safeExt}`;
+        const blob = await put(pathname, buf, {
+          access: "public",
+          contentType: req.file.mimetype || "image/jpeg",
+          ...(process.env.BLOB_READ_WRITE_TOKEN
+            ? { token: process.env.BLOB_READ_WRITE_TOKEN }
+            : {}),
+        });
+        return res.json({ url: blob.url });
+      }
+
+      const url = `/uploads/${req.file.filename}`;
+      return res.json({ url });
+    } catch (e) {
+      if (IS_PROD) {
+        return res.status(503).json({ error: "Envoi du fichier impossible pour le moment." });
+      }
+      return sendServerError(res, e);
     }
-    const url = `/uploads/${req.file.filename}`;
-    res.json({ url });
   }
 );
 
@@ -452,6 +477,7 @@ if (require.main === module) {
   connectDB()
     .then(() => {
       app.listen(PORT, () => {
+        if (IS_PROD) return;
         const safeUri = String(MONGODB_URI || "").replace(
           /\/\/([^:]+):([^@]+)@/,
           "//$1:***@"
@@ -462,17 +488,21 @@ if (require.main === module) {
       });
     })
     .catch((err) => {
-      console.error("\n❌ Connexion MongoDB impossible.\n");
-      if (String(MONGODB_URI).includes("127.0.0.1") || String(MONGODB_URI).includes("localhost")) {
-        console.error(
-          "→ MongoDB local n’est pas démarré, ou MONGODB_URI n’est pas chargé depuis .env.\n"
-        );
+      if (IS_PROD) {
+        console.error("Connexion base de données impossible.");
       } else {
-        console.error(
-          "→ Vérifiez l’URI Atlas (Network Access → 0.0.0.0/0), le mot de passe et le nom de la base.\n"
-        );
+        console.error("\n❌ Connexion MongoDB impossible.\n");
+        if (String(MONGODB_URI).includes("127.0.0.1") || String(MONGODB_URI).includes("localhost")) {
+          console.error(
+            "→ MongoDB local n’est pas démarré, ou MONGODB_URI n’est pas chargé depuis .env.\n"
+          );
+        } else {
+          console.error(
+            "→ Vérifiez l’URI Atlas (Network Access → 0.0.0.0/0), le mot de passe et le nom de la base.\n"
+          );
+        }
+        console.error(err.message || err);
       }
-      console.error(err.message || err);
       process.exit(1);
     });
 }
